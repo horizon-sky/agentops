@@ -1,0 +1,15 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "dockerfile",
+    "dockerfilePath": "apps/api/Dockerfile"
+  },
+  "deploy": {
+    "preDeployCommand": "python scripts/init_db.py",
+    "healthcheckPath": "/healthz",
+    "healthcheckTimeout": 180,
+    "restartPolicyType": "on_failure",
+    "restartPolicyMaxRetries": 5,
+    "numReplicas": 1
+  }
+}

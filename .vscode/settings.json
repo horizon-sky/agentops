@@ -1,0 +1,15 @@
+{
+  // 固定使用项目虚拟环境（含 langchain_core 等依赖），避免误报「无法解析导入」
+  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+  "python.analysis.extraPaths": ["${workspaceFolder}"],
+  // basedpyright 扩展的设置项（与 pyproject 中的 [tool.basedpyright] 等价）
+  "basedpyright.analysis.venvPath": "${workspaceFolder}",
+  "basedpyright.analysis.venv": ".venv",
+  "basedpyright.analysis.pythonVersion": "3.12",
+  "basedpyright.analysis.useLibraryCodeForTypes": true,
+  "files.watcherExclude": {
+    "**/.venv/**": true,
+    "**/.next/**": true,
+    "**/node_modules/**": true
+  }
+}

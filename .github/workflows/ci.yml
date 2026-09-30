@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.12.17"
+      - run: uv sync --locked --extra dev
+      - name: Lint
+        run: uv run ruff check .
+      - name: Type check
+        run: uv run mypy src apps || true
+      - name: Unit tests
+        run: uv run pytest -q
+
+  eval-gate:
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.12.17"
+      - run: uv sync --locked --extra dev
+      - name: Run golden set
+        run: uv run python -m evals.runner --limit 40
+      - name: Regression gate
+        run: |
+          uv run python - <<'PY'
+          import json, sys
+          from pathlib import Path
+          report = json.loads(Path("evals/report.json").read_text(encoding="utf-8"))
+          metrics = report["metrics"]
+          min_success = float(80.0)
+          max_p95 = float(30000.0)
+          if metrics["task_success_rate"] < min_success:
+              sys.exit(f"任务成功率 {metrics['task_success_rate']}% 低于门禁 {min_success}%")
+          if metrics["p95_latency_ms"] > max_p95:
+              sys.exit(f"P95 延迟 {metrics['p95_latency_ms']}ms 超过门禁 {max_p95}ms")
+          print("评测门禁通过", metrics)
+          PY
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Type check
+        run: pnpm exec tsc --noEmit
+      - name: Production build
+        run: pnpm build

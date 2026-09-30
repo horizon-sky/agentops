@@ -1,0 +1,19 @@
+{
+  "note": "演示用样例指标数据，非真实生产数据源",
+  "services": {
+    "default": [
+      {"metric": "http_5xx_rate", "window": "1h", "points": [0.001, 0.002, 0.014, 0.031, 0.027]},
+      {"metric": "p99_latency_ms", "window": "1h", "points": [180, 210, 640, 880, 760]},
+      {"metric": "cpu_usage", "window": "1h", "points": [0.32, 0.41, 0.78, 0.86, 0.81]}
+    ],
+    "order-service": [
+      {"metric": "http_5xx_rate", "window": "1h", "points": [0.002, 0.019, 0.058, 0.049, 0.021]},
+      {"metric": "p99_latency_ms", "window": "1h", "points": [220, 480, 1250, 1100, 690]},
+      {"metric": "db_pool_usage", "window": "1h", "points": [0.45, 0.72, 0.96, 0.94, 0.77]}
+    ],
+    "payment-service": [
+      {"metric": "http_5xx_rate", "window": "1h", "points": [0.001, 0.003, 0.006, 0.004, 0.002]},
+      {"metric": "p99_latency_ms", "window": "1h", "points": [150, 170, 260, 210, 180]}
+    ]
+  }
+}

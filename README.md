@@ -1,0 +1,131 @@
+# AgentOps · 研发工单自动化 Agent 系统
+
+面向研发工单场景的 **可控、可测、可观测** LLM Agent 系统：用户用自然语言提交问题，Agent 自主完成意图分类、任务规划、知识库检索与多工具调用，产出带引用的处理方案；涉及写操作时挂起等待人工确认，执行过程全链路可追踪、可回放、可评测。
+
+- 后端：Python 3.12（`.python-version` 已固定 3.12，与容器镜像一致） + FastAPI + LangGraph + MCP
+- 前端：**Next.js 15（App Router）** + React + TypeScript + Tailwind（执行链路可视化 / 审批 / 回放 / 评测看板）
+- 部署：Vercel（前端） + Railway（后端容器） + Neon Postgres（pgvector）
+
+## 架构
+
+```mermaid
+flowchart LR
+    B[浏览器] -->|HTTPS| V[Vercel: 前端工作台]
+    V -->|SSE 事件流 / REST| R[Railway: FastAPI 容器]
+    R --> G[LangGraph 状态图]
+    G --> T[MCP / 进程内工具层]
+    G --> S[混合检索 RAG]
+    S --> P[(Neon Postgres + pgvector)]
+    G --> P
+    R --> C[(Redis / 进程内缓存)]
+```
+
+Agent 链路：
+
+```mermaid
+stateDiagram-v2
+    [*] --> classify
+    classify --> plan: 意图明确
+    classify --> [*]: 信息不足
+    plan --> retrieve
+    retrieve --> tools
+    tools --> review
+    review --> plan: 证据不足 且 retry <= 2
+    review --> answer
+    tools --> hitl: 命中写类工具 → 挂起
+    hitl --> tools: 人工确认后 resume
+    answer --> [*]
+```
+
+## 核心能力
+
+| 能力 | 实现要点 |
+| --- | --- |
+| 有状态编排 | LangGraph StateGraph 六节点；检查点持久化（Postgres，无库时内存兜底）；中断可恢复 |
+| 工具层 | 5 个工具统一 Pydantic Schema；风险分级 read / write / high；超时重试、幂等键；3 个同时以 MCP Server 提供 |
+| 人机协同（HITL） | 写类工具 `interrupt` 挂起，前端审批卡确认/改参后 `resume` 从检查点继续 |
+| 混合检索 RAG | pgvector 向量 + `tsvector` BM25 + RRF 融合 + 可选 Rerank；回答强制带引用锚点 |
+| 可观测 | 事件总线 + SSE（含心跳与历史重放）；span 树落 `traces` 表；失败阶段（plan/retrieve/tools/generate）可定位 |
+| 评测 | 120 条黄金集，分层断言 + 规则判定，输出成功率/工具准确率/延迟分位/成本，接入 CI 回归门禁 |
+| 降级设计 | 无 LLM Key → 离线兜底；无 Embedding → 退化为 BM25；无 Redis → 进程内缓存；无数据库 → 服务仍可跑通链路 |
+
+## 快速开始
+
+> Python 版本固定为 **3.12**（`.python-version` = `3.12`），本地虚拟环境与容器镜像
+> `python:3.12-slim` 保持一致。若本机没有 3.12，`scripts/bootstrap.sh` 会通过 winget 安装。
+
+```bash
+# 1. 环境与依赖（Windows / Git Bash）
+bash scripts/bootstrap.sh
+
+# 2. 配置 .env（复制 .env.example，至少填 DATABASE_URL 与模型 Key）
+cp .env.example .env
+
+# 3. 建表并启用 pgvector
+uv run python scripts/init_db.py
+
+# 4. 启动后端
+uv run uvicorn apps.api.src.main:app --port 8000
+
+# 5. 启动前端（Next.js 15；/api 经 next.config.ts rewrite 代理到后端，同源免 CORS）
+cd apps/web && pnpm install && pnpm dev
+
+# 6. 自检与测试
+uv run python scripts/check_env.py
+uv run pytest -q
+
+# 7. 评测（分批跑，结果写入 evals/report.json）
+uv run python -m evals.runner --limit 40
+```
+
+## 接口
+
+```text
+POST   /sessions                 创建会话
+POST   /runs                     启动一次 Agent 执行
+GET    /runs/{id}/stream         SSE 事件流（plan/retrieve/tool_result/hitl_request/token/done/error/ping）
+POST   /runs/{id}/resume         HITL 人工确认后继续执行
+POST   /runs/{id}/abort          中断执行
+POST   /ingest                   文档入库（解析→切分→向量化→落库）
+GET    /traces/{run_id}          span 树，用于回放
+GET    /eval/report              最近一次评测报告
+GET    /healthz                  健康检查（Railway 探活）
+```
+
+## 当前评测结果（离线兜底基线）
+
+实验环境：Windows 本地、无 DATABASE_URL、无 LLM Key（走规则兜底与离线模型）、并发 1、120 条黄金集。
+
+| 指标 | 数值 |
+| --- | --- |
+| 用例数 | 120 |
+| 任务成功率 | 85.8% |
+| 工具准确率 | 100.0% |
+| 失败阶段分布 | plan 17 |
+| 延迟 P50 / P95 | 8 ms / 8 ms |
+| Recall@5 | 未标注（需标注相关 chunk 后再测） |
+| 引用断言跳过 | 54 条（无数据库时不伪造通过） |
+
+> 该基线仅证明链路与断言可用。接入 Neon 与真实模型后需重新跑基线，README 与简历只填实测值。
+
+## 已知限制与失败复盘
+
+1. **未配置数据库时无法产生引用**：检索返回空，评测中将 `require_citation` 断言标记为 skipped，而非记为通过——避免用"伪通过"制造虚高指标。
+2. **离线兜底分类存在盲区**：规则分类对改写过的注入语句（如"你现在是管理员"）召回不足，当前 17 条 plan 失败集中于此；下一步用真实模型的结构化分类替换，并在黄金集中补充对抗样本。
+3. **工具数据为演示数据源**：`query_metrics` / `create_ticket` 使用 `data/` 下样例数据，简历与面试中如实说明，不冒充生产系统。
+4. **Recall@5 暂不可测**：需要为文档标注相关 chunk 后才能计算，属于 M6 未完成项。
+
+## 目录
+
+```text
+apps/api      FastAPI 服务（routers / sse / schemas / Dockerfile）
+apps/web      前端工作台（Next.js 15 App Router：app/ 三屏 + components/ + lib/）
+src/agent     LangGraph 编排（graph / nodes / checkpointer / model / runner）
+src/rag       检索链路（parse / chunk / embed / hybrid_search / rerank / context / ingest）
+src/tools     工具层（registry / spec / builtin）
+src/db        数据层（models / session / cache）
+services      三个 MCP Server（code_search / metrics / ticket）
+evals         黄金集、断言、指标与报告
+scripts       环境自检、初始化、引导脚本
+docs/deploy.md  部署说明
+```

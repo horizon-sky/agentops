@@ -1,0 +1,73 @@
+export type EventType =
+  | "plan"
+  | "retrieve"
+  | "tool_result"
+  | "hitl_request"
+  | "token"
+  | "done"
+  | "error"
+  | "ping";
+
+export type Stage = "plan" | "retrieve" | "tools" | "generate";
+
+export interface AgentEvent {
+  id: string;
+  type: EventType;
+  run_id: string;
+  payload?: Record<string, unknown> | null;
+  stage?: Stage | null;
+  ms?: number | null;
+  ts: string;
+}
+
+export interface Citation {
+  chunk_id: string;
+  document_id?: string | null;
+  title?: string;
+  snippet?: string;
+  score?: number;
+  source?: string;
+}
+
+export interface ToolResultPayload {
+  name: string;
+  args?: Record<string, unknown>;
+  ok: boolean;
+  output?: unknown;
+  error?: string | null;
+  ms?: number;
+  risk?: string;
+}
+
+export interface HitlPayload {
+  tool: string;
+  args?: Record<string, unknown>;
+  reason?: string;
+}
+
+export interface TraceNode {
+  id: string;
+  stage: string;
+  name: string;
+  status: string;
+  ms: number;
+  tokens: number;
+  cost: number;
+  inputs?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
+  children?: TraceNode[];
+}
+
+export interface Session {
+  id: string;
+  title: string;
+  created_at?: string | null;
+}
+
+export interface RunRef {
+  id: string;
+  session_id: string;
+  status: string;
+  model_version?: string;
+  prompt_version?: string;
+}
