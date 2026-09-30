@@ -1,4 +1,4 @@
-"""检查点装配：数据库配置存在时保持 Postgres 连接到应用关闭。"""
+"""检查点装配：使用可回收连接池避免 Neon 空闲连接失效。"""
 
 from __future__ import annotations
 
@@ -15,9 +15,24 @@ async def build_checkpointer(
     """返回 (checkpointer, 是否持久化)。"""
     if settings.has_database:
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+        from psycopg.rows import dict_row
+        from psycopg_pool import AsyncConnectionPool
 
         url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
-        saver = await stack.enter_async_context(AsyncPostgresSaver.from_conn_string(url))
+        if url.startswith("postgresql+psycopg://"):
+            url = url.replace("postgresql+psycopg://", "postgresql://", 1)
+        pool = AsyncConnectionPool(
+            url,
+            kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
+            min_size=1,
+            max_size=4,
+            max_lifetime=300,
+            max_idle=60,
+            check=AsyncConnectionPool.check_connection,
+            open=False,
+        )
+        await stack.enter_async_context(pool)
+        saver = AsyncPostgresSaver(conn=pool)
         await saver.setup()
         return saver, True
 
