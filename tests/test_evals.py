@@ -7,7 +7,12 @@ def test_eval_runner_uses_selector_policy_on_windows(monkeypatch) -> None:
     policy = object()
     captured: list[object] = []
     monkeypatch.setattr(runner.sys, "platform", "win32")
-    monkeypatch.setattr(runner.asyncio, "WindowsSelectorEventLoopPolicy", lambda: policy)
+    monkeypatch.setattr(
+        runner.asyncio,
+        "WindowsSelectorEventLoopPolicy",
+        lambda: policy,
+        raising=False,
+    )
     monkeypatch.setattr(runner.asyncio, "set_event_loop_policy", captured.append)
     monkeypatch.setattr(runner.asyncio, "run", lambda _coro: 0)
 
