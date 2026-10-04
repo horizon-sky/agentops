@@ -42,10 +42,11 @@ python scripts/init_db.py
 2. Framework 自动识别为 Next.js（已提供 `vercel.json`）；
 3. 环境变量：
    - `NEXT_PUBLIC_API_BASE_URL=/api`（同源前缀）
-   - `API_PROXY_TARGET=https://<service>.up.railway.app`（rewrite 目标，服务端变量）
-4. 前端所有请求走 `/api/*`，由 `next.config.ts` 的 rewrite 转发到后端，**前端与后端同源，无需配置 CORS**。
+   - `API_PROXY_TARGET=https://<service>.up.railway.app`（服务端代理目标）
+   - `API_TOKEN=<与 Railway 相同的令牌>`（服务端变量，不要加 `NEXT_PUBLIC_` 前缀）
+4. 前端所有请求走 `/api/*`，由 Next.js 服务端路由转发到后端，**前端与后端同源，无需配置 CORS**。
 
-提交代码到远程仓库后，先在 Vercel 绑定 `apps/web` 为 Root Directory，再配置上述两个变量并分别部署 Preview/Production。
+提交代码到远程仓库后，先在 Vercel 绑定 `apps/web` 为 Root Directory，再配置上述三个变量并分别部署 Preview/Production。
 
 ## 4. 环境变量清单
 
@@ -70,7 +71,7 @@ python scripts/init_db.py
 4. 触发建单类问题 → 出现 `hitl_request` → `POST /runs/{id}/resume` 确认后继续执行
 5. `GET /traces/{run_id}` 回放
 
-启用 `API_TOKEN` 前需先完成用户侧身份认证或服务端代理。当前浏览器请求不应携带 `API_TOKEN`，否则将令牌暴露在前端构建产物中。
+启用 `API_TOKEN` 后，Railway 与 Vercel 都要配置同一个令牌。浏览器通过 Vercel 的服务端代理登录，令牌只用于服务端向 Railway 发起请求，不会进入前端构建产物；登录会话使用 HttpOnly Cookie，默认 8 小时过期。
 
 ## 6. 本地一键启动（备选）
 
@@ -79,4 +80,4 @@ docker compose -f infra/docker-compose.yml up --build
 ```
 
 > 本机未安装 Docker 时，可用 `uv run uvicorn apps.api.src.main:app --port 8000` 直接起后端，
-> 前端 `cd apps/web && pnpm dev`（Next.js 已配置 `/api` rewrite 代理）。
+> 前端 `cd apps/web && pnpm dev`（Next.js 服务端路由代理 `/api` 请求）。

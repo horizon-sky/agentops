@@ -1,9 +1,9 @@
 "use client";
 
-import { Activity, Github, Radar } from "lucide-react";
+import { Activity, Github, LogOut, Radar } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const NAV = [
   { to: "/", label: "工作台" },
@@ -14,6 +14,19 @@ const NAV = [
 export default function TopNav() {
   const pathname = usePathname();
   const [modelTier, setModelTier] = useState("strong");
+  const [authEnabled, setAuthEnabled] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/session", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((session: { enabled?: boolean } | null) => setAuthEnabled(session?.enabled === true))
+      .catch(() => undefined);
+  }, []);
+
+  const logout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.reload();
+  };
 
   return (
     <header className="fixed inset-x-0 top-0 z-30 border-b border-white/10 bg-ink-900/80 backdrop-blur-xl">
@@ -72,6 +85,17 @@ export default function TopNav() {
           >
             <Github size={15} />
           </a>
+          {authEnabled ? (
+            <button
+              type="button"
+              onClick={logout}
+              title="退出登录"
+              aria-label="退出登录"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-muted transition hover:text-white"
+            >
+              <LogOut size={15} />
+            </button>
+          ) : null}
         </div>
       </div>
     </header>

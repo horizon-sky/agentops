@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import AuthGate from "@/components/AuthGate";
 import TopNav from "@/components/TopNav";
 import "./globals.css";
 
@@ -20,8 +21,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <TopNav />
-        <div className="mx-auto max-w-[1600px] px-6 pb-8 pt-[88px]">{children}</div>
+        <AuthGate>
+          <TopNav />
+          <div className="mx-auto max-w-[1600px] px-6 pb-8 pt-[88px]">{children}</div>
+        </AuthGate>
       </body>
     </html>
   );

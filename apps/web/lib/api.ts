@@ -12,6 +12,7 @@ export const API_BASE: string = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     ...init,
   });
   if (!response.ok) {
@@ -77,6 +78,7 @@ export async function streamRun(
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/runs/${runId}/stream`, {
     headers: { Accept: "text/event-stream" },
+    credentials: "same-origin",
     signal,
   });
   if (!response.body) return;
