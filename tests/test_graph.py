@@ -7,8 +7,20 @@ from typing import Any
 from apps.api.src.schemas.events import AgentEvent
 from src.agent.context import bind
 from src.agent.graph import build_graph
+from src.agent.model import ModelResult
 from src.agent.runner import GraphRunner
 from src.config import Settings
+
+
+class LowConfidenceLLM:
+    async def acomplete(self, messages, tier="strong", response_model=None):
+        from src.agent.nodes.classify import IntentOut
+
+        return ModelResult(parsed=IntentOut(intent="general", confident=False, reason="信息不足"))
+
+    async def astream(self, messages, tier="strong"):
+        if False:
+            yield ""
 
 
 class Collector:
@@ -46,6 +58,18 @@ async def test_graph_run_emits_plan_and_done_offline() -> None:
     assert "tool_result" in collector.types
     assert collector.types[-1] == "done"
     assert "answer" in collector.payload_of("done")
+
+
+async def test_low_confidence_classification_terminates_sse_with_done() -> None:
+    settings = Settings(_env_file=None)
+    collector = Collector()
+    runner = GraphRunner(settings)
+    runner.llm = LowConfidenceLLM()
+
+    await runner.run("run-low-confidence", "帮我处理一下", collector)
+
+    assert collector.types == ["plan", "done"]
+    assert "补充" in collector.payload_of("done")["answer"]
 
 
 async def test_high_risk_tool_triggers_hitl_and_suspends() -> None:
