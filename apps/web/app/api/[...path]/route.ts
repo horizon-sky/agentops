@@ -20,13 +20,18 @@ async function proxy(request: NextRequest) {
 
   const method = request.method.toUpperCase();
   const body = method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer();
-  const response = await fetch(target, {
-    method,
-    headers,
-    body,
-    redirect: "manual",
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(target, {
+      method,
+      headers,
+      body,
+      redirect: "manual",
+      cache: "no-store",
+    });
+  } catch {
+    return NextResponse.json({ detail: "upstream unavailable" }, { status: 502 });
+  }
 
   return new NextResponse(response.body, {
     status: response.status,
