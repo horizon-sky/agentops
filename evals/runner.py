@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,12 +23,23 @@ from apps.api.src.schemas.events import AgentEvent
 from evals.judges import judge
 from evals.metrics import aggregate, to_markdown
 from src.agent.runner import GraphRunner
-from src.config import get_settings
+from src.config import Settings, get_settings
+from src.db.models import Run, Session
+from src.db.session import get_session_factory
 
 ROOT = Path(__file__).resolve().parent
 GOLDEN = ROOT / "golden_set.json"
 REPORT_JSON = ROOT / "report.json"
 REPORT_MD = ROOT / "report.md"
+
+
+def _run(coro: object) -> int:
+    """Windows 的 psycopg 异步连接池需要 SelectorEventLoop。"""
+    if sys.platform == "win32":
+        policy = getattr(asyncio, "WindowsSelectorEventLoopPolicy", None)
+        if policy is not None:
+            asyncio.set_event_loop_policy(policy())
+    return asyncio.run(coro)  # type: ignore[arg-type]
 
 
 class Collector:
@@ -63,8 +75,42 @@ class Collector:
                 self.citations = max(self.citations, len(citations))
 
 
+async def _create_eval_run(run_id: str, query: str, settings: Settings) -> None:
+    factory = get_session_factory(settings)
+    if factory is None:
+        return
+    async with factory() as db:
+        session = Session(title="评测运行")
+        db.add(session)
+        await db.flush()
+        db.add(
+            Run(
+                id=uuid.UUID(run_id),
+                session_id=session.id,
+                query=query,
+                status="running",
+                model_version=settings.strong_model,
+                prompt_version=settings.prompt_version,
+            )
+        )
+        await db.commit()
+
+
+async def _finish_eval_run(run_id: str, settings: Settings, status: str) -> None:
+    factory = get_session_factory(settings)
+    if factory is None:
+        return
+    async with factory() as db:
+        run = await db.get(Run, uuid.UUID(run_id))
+        if run is None:
+            return
+        run.status = status
+        run.ended_at = datetime.now(UTC)
+        await db.commit()
+
+
 async def run_case(
-    case: dict[str, object], runner: GraphRunner, db_available: bool
+    case: dict[str, object], runner: GraphRunner, settings: Settings
 ) -> dict[str, object]:
     collector = Collector()
     run_id = str(uuid.uuid4())
@@ -78,10 +124,16 @@ async def run_case(
             {"name": "create_ticket", "args": {"title": title, "severity": "P1"}},
         ]
 
-    await runner.run(run_id, str(case["query"]), collector, pending_calls=pending)
-    if collector.hitl:  # 评测中自动确认，模拟人工审批通过
-        approve_args = {"ok": True, "args": {"title": str(case["query"])[:40]}}
-        await runner.resume(run_id, approve_args, collector)
+    await _create_eval_run(run_id, str(case["query"]), settings)
+    try:
+        await runner.run(run_id, str(case["query"]), collector, pending_calls=pending)
+        if collector.hitl:  # 评测中自动确认，模拟人工审批通过
+            approve_args = {"ok": True, "args": {"title": str(case["query"])[:40]}}
+            await runner.resume(run_id, approve_args, collector)
+    except Exception:
+        await _finish_eval_run(run_id, settings, "failed")
+        raise
+    await _finish_eval_run(run_id, settings, "completed")
 
     latency_ms = int((perf_counter() - started) * 1000)
     verdict = judge(
@@ -94,7 +146,7 @@ async def run_case(
             "hitl": collector.hitl,
             "answer": collector.answer,
         },
-        db_available=db_available,
+        db_available=settings.has_database,
     )
     return {
         "id": case["id"],
@@ -117,7 +169,7 @@ async def main(limit: int | None, offset: int) -> int:
     results: list[dict[str, object]] = []
 
     for case in cases:
-        results.append(await run_case(case, runner, settings.has_database))
+        results.append(await run_case(case, runner, settings))
         print(f"{case['id']} {'PASS' if results[-1]['passed'] else 'FAIL'}")
 
     metrics = aggregate([item for item in results if isinstance(item, dict)])  # type: ignore[arg-type]
@@ -138,4 +190,4 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--offset", type=int, default=0)
     args = parser.parse_args()
-    raise SystemExit(asyncio.run(main(args.limit, args.offset)))
+    raise SystemExit(_run(main(args.limit, args.offset)))
