@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 BATCH_SIZE = 32
+_embedding_caches: dict[str, Any] = {}
 
 
 def _cache_key(model: str, text: str) -> str:
@@ -23,7 +24,11 @@ async def embed_texts(texts: list[str], settings: Any) -> list[list[float]]:
     if embedder is None:
         return [[] for _ in texts]
 
-    cache = build_cache(settings)
+    cache_id = getattr(settings, "redis_url", "") or "__memory__"
+    cache = _embedding_caches.get(cache_id)
+    if cache is None:
+        cache = build_cache(settings)
+        _embedding_caches[cache_id] = cache
     results: dict[int, list[float]] = {}
     pending: list[tuple[int, str]] = []
 

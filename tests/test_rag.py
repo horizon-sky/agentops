@@ -53,6 +53,46 @@ async def test_embed_texts_empty_when_embedding_disabled() -> None:
     assert vectors == [[], []]
 
 
+async def test_embed_texts_reuses_memory_cache(monkeypatch) -> None:
+    from src.agent import model
+    from src.config import Settings
+    from src.rag import embed
+
+    calls = 0
+
+    class FakeEmbedder:
+        model_name = "test-model"
+
+        async def aembed(self, texts):
+            nonlocal calls
+            calls += 1
+            return [[float(len(text))] for text in texts]
+
+    settings = Settings(_env_file=None)
+    monkeypatch.setattr(model, "build_embedder", lambda _settings: FakeEmbedder())
+    monkeypatch.setattr(embed, "_embedding_caches", {})
+
+    first = await embed.embed_texts(["a", "bb"], settings)
+    second = await embed.embed_texts(["a", "bb"], settings)
+
+    assert first == second == [[1.0], [2.0]]
+    assert calls == 1
+
+
+def test_openai_embedder_exposes_model_name() -> None:
+    from src.agent.model import OpenAIEmbedder
+    from src.config import Settings
+
+    embedder = OpenAIEmbedder(
+        Settings(
+            _env_file=None,
+            embedding_api_key="test-key",
+            embedding_base_url="https://example.invalid/v1",
+        )
+    )
+    assert embedder.model_name == "bge-m3"
+
+
 async def test_rerank_uses_scores_without_mutating_hits(monkeypatch) -> None:
     from src.config import Settings
     from src.rag import rerank

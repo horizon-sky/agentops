@@ -57,19 +57,21 @@ async def hybrid_search(
         query_vector = vectors[0] if vectors else None
 
     vector_sql = """
-        SELECT c.chunk_id, c.content, c.document_id,
+        SELECT c.chunk_id, c.content, c.document_id, d.title,
                ROW_NUMBER() OVER (ORDER BY c.embedding <=> CAST(:qv AS vector)) AS rank
         FROM chunks c
+        JOIN documents d ON d.id = c.document_id
         WHERE c.embedding IS NOT NULL
         ORDER BY c.embedding <=> CAST(:qv AS vector)
         LIMIT :lim
     """
     keyword_sql = """
-        SELECT c.chunk_id, c.content, c.document_id,
+        SELECT c.chunk_id, c.content, c.document_id, d.title,
                ROW_NUMBER() OVER (
                    ORDER BY ts_rank_cd(c.tsv, plainto_tsquery('simple', :q)) DESC
                ) AS rank
         FROM chunks c
+        JOIN documents d ON d.id = c.document_id
         WHERE c.tsv @@ plainto_tsquery('simple', :q)
         ORDER BY ts_rank_cd(c.tsv, plainto_tsquery('simple', :q)) DESC
         LIMIT :lim
@@ -79,6 +81,7 @@ async def hybrid_search(
         SELECT COALESCE(v.chunk_id, k.chunk_id) AS chunk_id,
                COALESCE(v.content, k.content) AS content,
                COALESCE(v.document_id, k.document_id) AS document_id,
+               COALESCE(v.title, k.title) AS title,
                COALESCE(1.0 / ({RRF_K} + v.rank), 0)
                + COALESCE(1.0 / ({RRF_K} + k.rank), 0) AS score
         FROM vec v
@@ -88,7 +91,7 @@ async def hybrid_search(
     """
     keyword_only_sql = f"""
         WITH kw AS ({keyword_sql})
-        SELECT chunk_id, content, document_id,
+        SELECT chunk_id, content, document_id, title,
                1.0 / ({RRF_K} + rank) AS score
         FROM kw
         ORDER BY score DESC
@@ -109,6 +112,7 @@ async def hybrid_search(
         ChunkHit(
             chunk_id=str(row["chunk_id"]),
             document_id=str(row["document_id"]) if row["document_id"] else None,
+            title=str(row["title"] or ""),
             snippet=str(row["content"])[:400],
             score=float(row["score"]),
             source="hybrid" if query_vector is not None else "bm25",

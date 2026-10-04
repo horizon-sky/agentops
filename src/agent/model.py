@@ -192,6 +192,10 @@ class OpenAIEmbedder:
         self._model = settings.embedding_model
         self.dims = settings.embedding_dim
 
+    @property
+    def model_name(self) -> str:
+        return self._model
+
     async def aembed(self, texts: Sequence[str]) -> list[list[float]]:
         resp = await self._client.embeddings.create(model=self._model, input=list(texts))
         return [item.embedding for item in resp.data]
