@@ -6,16 +6,18 @@ import type {
   ToolResultPayload,
   TraceNode,
 } from "./types";
+import { loginRequired } from "./auth";
 
 export const API_BASE: string = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
     ...init,
+    headers: { "Content-Type": "application/json", "X-AgentOps-CSRF": "1", ...init?.headers },
   });
   if (!response.ok) {
+    if (response.status === 401) loginRequired();
     const detail = await response.text();
     throw new Error(`${response.status} ${detail.slice(0, 200)}`);
   }
@@ -27,6 +29,10 @@ export function createSession(title: string): Promise<Session> {
     method: "POST",
     body: JSON.stringify({ title }),
   });
+}
+
+export function listSessions(): Promise<Session[]> {
+  return request<Session[]>("/sessions");
 }
 
 export function createRun(sessionId: string, query: string): Promise<RunRef> {
@@ -81,6 +87,10 @@ export async function streamRun(
     credentials: "same-origin",
     signal,
   });
+  if (!response.ok) {
+    if (response.status === 401) loginRequired();
+    throw new Error(`stream failed: ${response.status}`);
+  }
   if (!response.body) return;
 
   const reader = response.body.getReader();
@@ -96,7 +106,13 @@ export async function streamRun(
     for (const frame of frames) {
       const line = frame.split("\n").find((item) => item.startsWith("data: "));
       if (!line) continue;
-      onEvent(JSON.parse(line.replace("data: ", "")) as AgentEvent);
+      const event = JSON.parse(line.replace("data: ", "")) as AgentEvent;
+      if (event.type === "error" && event.payload?.code === "auth_expired") {
+        await reader.cancel();
+        loginRequired();
+        return;
+      }
+      onEvent(event);
     }
   }
 }

@@ -6,18 +6,23 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from apps.api.src.deps import require_token, settings_dep
+from apps.api.src.deps import Principal, current_user, settings_dep
 from apps.api.src.schemas.api import IngestIn, IngestOut
+from src.auth import rate_limit
 from src.config import Settings
 
-router = APIRouter(prefix="/ingest", tags=["ingest"], dependencies=[Depends(require_token)])
+router = APIRouter(prefix="/ingest", tags=["ingest"])
 
 
 @router.post("", response_model=IngestOut, status_code=status.HTTP_201_CREATED)
 async def ingest_document_api(
     payload: IngestIn,
     settings: Settings = Depends(settings_dep),
+    identity: Principal = Depends(current_user),
 ) -> IngestOut:
+    rate_limit(f"ingest:{identity.user.id}", settings.max_ingests_per_user_per_day, 86400)
+    if len(payload.content.encode("utf-8")) > 1_000_000:
+        raise HTTPException(413, "单次文档上传不能超过 1 MB")
     if not settings.has_database:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -33,6 +38,7 @@ async def ingest_document_api(
             content=payload.content,
             version=payload.version,
             settings=settings,
+            owner_id=identity.user.id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { abortRun, createRun, resumeRun, streamRun } from "./api";
 import { isHitl, isToolResult } from "./api";
 import type { AgentEvent, Citation, Stage, ToolResultPayload } from "./types";
@@ -40,6 +40,14 @@ export function useRun() {
   const [status, setStatus] = useState<"idle" | "running" | "waiting" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
+  const seenEvents = useRef(new Set<string>());
+
+  useEffect(() => () => controllerRef.current?.abort(), []);
+
+  const reportError = useCallback((reason: unknown) => {
+    setStatus("error");
+    setError(reason instanceof Error ? reason.message : "请求失败，请重试");
+  }, []);
 
   const patchStep = useCallback((stage: Stage, patch: Partial<TimelineStep>) => {
     setSteps((prev) =>
@@ -49,6 +57,8 @@ export function useRun() {
 
   const handleEvent = useCallback(
     (event: AgentEvent) => {
+      if (seenEvents.current.has(event.id)) return;
+      seenEvents.current.add(event.id);
       const payload = event.payload ?? {};
       const stage = event.stage ?? "plan";
       patchStep(stage, { status: "running", detail: "执行中" });
@@ -75,6 +85,8 @@ export function useRun() {
           break;
         case "tool_result":
           if (isToolResult(payload)) {
+            setHitl(null);
+            setStatus("running");
             setTools((prev) => [...prev, payload]);
             patchStep("tools", {
               status: "done",
@@ -95,6 +107,7 @@ export function useRun() {
           patchStep("generate", { status: "running", detail: "流式生成中" });
           break;
         case "done":
+          setHitl(null);
           setStatus("done");
           patchStep("generate", { status: "done", ms: event.ms ?? 0, detail: "已完成" });
           if (typeof payload.answer === "string") setAnswer(payload.answer);
@@ -119,6 +132,7 @@ export function useRun() {
       controllerRef.current?.abort();
       const controller = new AbortController();
       controllerRef.current = controller;
+      seenEvents.current.clear();
 
       setSteps(initialSteps());
       setAnswer("");
@@ -128,11 +142,16 @@ export function useRun() {
       setError(null);
       setStatus("running");
 
-      const run = await createRun(sessionId, query);
-      setRunId(run.id);
-      await streamRun(run.id, handleEvent, controller.signal).catch(() => undefined);
+      try {
+        const run = await createRun(sessionId, query);
+        if (controller.signal.aborted) return;
+        setRunId(run.id);
+        await streamRun(run.id, handleEvent, controller.signal);
+      } catch (reason) {
+        if (!controller.signal.aborted) reportError(reason);
+      }
     },
-    [handleEvent],
+    [handleEvent, reportError],
   );
 
   const stop = useCallback(async () => {
@@ -144,15 +163,21 @@ export function useRun() {
   const approve = useCallback(
     async (ok: boolean, args?: Record<string, unknown>) => {
       if (!runId) return;
+      controllerRef.current?.abort();
       setHitl(null);
       setStatus("running");
       patchStep("tools", { status: "running", detail: ok ? "已确认，继续执行" : "已拒绝" });
-      await resumeRun(runId, ok, args).catch(() => undefined);
       const controller = new AbortController();
       controllerRef.current = controller;
-      await streamRun(runId, handleEvent, controller.signal).catch(() => undefined);
+      try {
+        await resumeRun(runId, ok, args);
+        if (controller.signal.aborted) return;
+        await streamRun(runId, handleEvent, controller.signal);
+      } catch (reason) {
+        if (!controller.signal.aborted) reportError(reason);
+      }
     },
-    [handleEvent, patchStep, runId],
+    [handleEvent, patchStep, reportError, runId],
   );
 
   const totalMs = useMemo(() => steps.reduce((sum, step) => sum + step.ms, 0), [steps]);

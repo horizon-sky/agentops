@@ -3,7 +3,9 @@
 import { Activity, Github, LogOut, Radar } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useAuthUser } from "@/components/AuthGate";
+import { authRequest, notifyAuthChanged } from "@/lib/auth";
 
 const NAV = [
   { to: "/", label: "工作台" },
@@ -14,18 +16,21 @@ const NAV = [
 export default function TopNav() {
   const pathname = usePathname();
   const [modelTier, setModelTier] = useState("strong");
-  const [authEnabled, setAuthEnabled] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/auth/session", { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((session: { enabled?: boolean } | null) => setAuthEnabled(session?.enabled === true))
-      .catch(() => undefined);
-  }, []);
+  const user = useAuthUser();
+  const [logoutError, setLogoutError] = useState("");
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const logout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.reload();
+    setLoggingOut(true);
+    setLogoutError("");
+    try {
+      await authRequest("logout");
+      notifyAuthChanged();
+      window.location.replace("/login");
+    } catch {
+      setLogoutError("退出失败，请重试");
+      setLoggingOut(false);
+    }
   };
 
   return (
@@ -43,7 +48,7 @@ export default function TopNav() {
         </div>
 
         <nav className="flex items-center gap-1">
-          {NAV.map((item) => {
+          {NAV.filter((item) => item.to !== "/evals" || user?.role === "admin").map((item) => {
             const active = pathname === item.to;
             return (
               <Link
@@ -85,10 +90,13 @@ export default function TopNav() {
           >
             <Github size={15} />
           </a>
-          {authEnabled ? (
+          {user ? <span className="max-w-32 truncate text-xs text-muted" title={user.email}>{user.display_name}</span> : null}
+          {logoutError ? <span role="alert" className="text-xs text-danger">{logoutError}</span> : null}
+          {user ? (
             <button
               type="button"
               onClick={logout}
+              disabled={loggingOut}
               title="退出登录"
               aria-label="退出登录"
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 text-muted transition hover:text-white"

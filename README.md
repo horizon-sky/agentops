@@ -41,13 +41,14 @@ stateDiagram-v2
 
 | 能力 | 实现要点 |
 | --- | --- |
+| 用户账号 | 邮箱公开注册、验证与密码找回；Argon2id 密码、HttpOnly Cookie、可撤销会话；会话/运行/文档与检索按用户隔离 |
 | 有状态编排 | LangGraph StateGraph 六节点；检查点持久化（Postgres，无库时内存兜底）；中断可恢复 |
 | 工具层 | 5 个工具统一 Pydantic Schema；风险分级 read / write / high；超时重试、幂等键；3 个同时以 MCP Server 提供 |
 | 人机协同（HITL） | 写类工具 `interrupt` 挂起，前端审批卡确认/改参后 `resume` 从检查点继续 |
 | 混合检索 RAG | pgvector 向量 + `tsvector` BM25 + RRF 融合 + 可选 Rerank；回答强制带引用锚点 |
 | 可观测 | 事件总线 + SSE（含心跳与历史重放）；span 树落 `traces` 表；失败阶段（plan/retrieve/tools/generate）可定位 |
 | 评测 | 120 条黄金集，分层断言 + 规则判定，输出成功率/工具准确率/延迟分位/成本，接入 CI 回归门禁 |
-| 降级设计 | 无 LLM Key → 离线兜底；无 Embedding → 退化为 BM25；无 Redis → 进程内缓存；无数据库 → 服务仍可跑通链路 |
+| 降级设计 | 无 LLM Key → 离线兜底；无 Embedding → 退化为 BM25；无 Redis → 进程内缓存；无数据库 → 仅健康检查与直接图评测可用，账号与工作台需要数据库 |
 
 ## 快速开始
 
@@ -58,7 +59,8 @@ stateDiagram-v2
 # 1. 环境与依赖（Windows / Git Bash）
 bash scripts/bootstrap.sh
 
-# 2. 配置 .env（复制 .env.example，至少填 DATABASE_URL 与模型 Key）
+# 2. 配置 .env：DATABASE_URL、WEB_ORIGIN、RESEND_API_KEY、MAIL_FROM
+# API_TOKEN 供前后端服务端共享；模型 Key 可选
 cp .env.example .env
 
 # 3. 建表并启用 pgvector
@@ -67,20 +69,35 @@ uv run python scripts/init_db.py
 # 4. 启动后端
 uv run uvicorn apps.api.src.main:app --port 8000
 
-# 5. 启动前端（Next.js 15；/api 经 next.config.ts rewrite 代理到后端，同源免 CORS）
-cd apps/web && pnpm install && pnpm dev
+# 5. 在 apps/web 复制 .env.example 为 .env.local，填写相同 API_TOKEN
+# /api 通过 Next.js 服务端路由代理，浏览器只持有个人 HttpOnly Cookie
+cd apps/web && cp .env.example .env.local && pnpm install --frozen-lockfile && pnpm dev
 
 # 6. 自检与测试
 uv run python scripts/check_env.py
 uv run pytest -q
 
 # 7. 评测（分批跑，结果写入 evals/report.json）
-uv run python -m evals.runner --limit 40
+# 有数据库时必须指定已验证账号 UUID，仅读取该账号知识库
+uv run python -m evals.runner --limit 40 --user-id <verified-user-uuid>
 ```
+
+打开 `/register` 自行注册，收到邮件后点击链接并确认验证，再到 `/login` 登录。
+Resend 需要配置已验证的发件域名；邮件未配置或发送失败返回 503，不会模拟成功。
+密码至少 12 位，验证/重置链接有效期 30 分钟；登录默认 8 小时，退出或重置密码后会话撤销。
+管理员授权、历史数据归属与上线验收见 [部署说明](docs/deploy.md)。
 
 ## 接口
 
 ```text
+POST   /auth/register             公开注册并发送验证邮件
+POST   /auth/resend-verification  重发验证邮件
+POST   /auth/verify-email         消费一次性邮箱验证令牌
+POST   /auth/login                邮箱密码登录
+GET    /auth/session              当前用户
+POST   /auth/logout               撤销当前登录会话
+POST   /auth/forgot-password      申请密码重置邮件
+POST   /auth/reset-password       更新密码并撤销所有登录会话
 POST   /sessions                 创建会话
 POST   /runs                     启动一次 Agent 执行
 GET    /runs/{id}/stream         SSE 事件流（plan/retrieve/tool_result/hitl_request/token/done/error/ping）
@@ -91,6 +108,9 @@ GET    /traces/{run_id}          span 树，用于回放
 GET    /eval/report              最近一次评测报告
 GET    /healthz                  健康检查（Railway 探活）
 ```
+
+除健康检查与注册/登录/邮件入口外，接口需要个人身份；评测报告需要管理员权限。
+生产环境还需要 `X-API-Token` 服务端代理凭据，由 Next.js 注入，不能用于用户登录。
 
 ## 当前评测结果（离线兜底基线）
 
@@ -114,6 +134,7 @@ GET    /healthz                  健康检查（Railway 探活）
 2. **离线兜底分类存在盲区**：规则分类对改写过的注入语句（如"你现在是管理员"）召回不足，当前 17 条 plan 失败集中于此；下一步用真实模型的结构化分类替换，并在黄金集中补充对抗样本。
 3. **工具数据为演示数据源**：`query_metrics` / `create_ticket` 使用 `data/` 下样例数据，简历与面试中如实说明，不冒充生产系统。
 4. **Recall@5 暂不可测**：需要为文档标注相关 chunk 后才能计算，属于 M6 未完成项。
+5. **单副本部署**：SSE、后台任务、注册/登录与文档上传限流使用进程内状态，重启会清空限流。任务每日额度从数据库统计；扩容前需实现共享事件与限流。
 
 ## 目录
 

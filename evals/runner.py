@@ -24,7 +24,7 @@ from evals.judges import judge
 from evals.metrics import aggregate, to_markdown
 from src.agent.runner import GraphRunner
 from src.config import Settings, get_settings
-from src.db.models import Run, Session
+from src.db.models import Run, Session, User
 from src.db.session import get_session_factory
 
 ROOT = Path(__file__).resolve().parent
@@ -75,12 +75,19 @@ class Collector:
                 self.citations = max(self.citations, len(citations))
 
 
-async def _create_eval_run(run_id: str, query: str, settings: Settings) -> None:
+async def _create_eval_run(
+    run_id: str, query: str, settings: Settings, user_id: str = ""
+) -> None:
     factory = get_session_factory(settings)
     if factory is None:
         return
+    if not user_id:
+        raise ValueError("Database evaluation requires --user-id for a verified account")
     async with factory() as db:
-        session = Session(title="评测运行")
+        user = await db.get(User, uuid.UUID(user_id))
+        if user is None or not user.is_active or user.verified_at is None:
+            raise ValueError("Evaluation account must be active and verified")
+        session = Session(title="评测运行", owner_id=user.id)
         db.add(session)
         await db.flush()
         db.add(
@@ -110,7 +117,7 @@ async def _finish_eval_run(run_id: str, settings: Settings, status: str) -> None
 
 
 async def run_case(
-    case: dict[str, object], runner: GraphRunner, settings: Settings
+    case: dict[str, object], runner: GraphRunner, settings: Settings, user_id: str = ""
 ) -> dict[str, object]:
     collector = Collector()
     run_id = str(uuid.uuid4())
@@ -124,12 +131,14 @@ async def run_case(
             {"name": "create_ticket", "args": {"title": title, "severity": "P1"}},
         ]
 
-    await _create_eval_run(run_id, str(case["query"]), settings)
+    await _create_eval_run(run_id, str(case["query"]), settings, user_id)
     try:
-        await runner.run(run_id, str(case["query"]), collector, pending_calls=pending)
-        if collector.hitl:  # 评测中自动确认，模拟人工审批通过
+        await runner.run(
+            run_id, str(case["query"]), collector, pending_calls=pending, user_id=user_id
+        )
+        while await runner.awaiting_approval(run_id):  # 评测中模拟人工审批通过
             approve_args = {"ok": True, "args": {"title": str(case["query"])[:40]}}
-            await runner.resume(run_id, approve_args, collector)
+            await runner.resume(run_id, approve_args, collector, user_id=user_id)
     except Exception:
         await _finish_eval_run(run_id, settings, "failed")
         raise
@@ -158,7 +167,7 @@ async def run_case(
     }
 
 
-async def main(limit: int | None, offset: int) -> int:
+async def main(limit: int | None, offset: int, user_id: str = "") -> int:
     data = json.loads(GOLDEN.read_text(encoding="utf-8"))
     cases = data["cases"][offset:]
     if limit:
@@ -169,7 +178,7 @@ async def main(limit: int | None, offset: int) -> int:
     results: list[dict[str, object]] = []
 
     for case in cases:
-        results.append(await run_case(case, runner, settings))
+        results.append(await run_case(case, runner, settings, user_id))
         print(f"{case['id']} {'PASS' if results[-1]['passed'] else 'FAIL'}")
 
     metrics = aggregate([item for item in results if isinstance(item, dict)])  # type: ignore[arg-type]
@@ -189,5 +198,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--offset", type=int, default=0)
+    parser.add_argument("--user-id", default="", help="Verified account owning evaluation data")
     args = parser.parse_args()
-    raise SystemExit(_run(main(args.limit, args.offset)))
+    raise SystemExit(_run(main(args.limit, args.offset, args.user_id)))

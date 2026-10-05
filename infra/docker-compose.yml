@@ -30,6 +30,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://agentops:agentops@db:5432/agentops
       REDIS_URL: redis://redis:6379/0
       CORS_ORIGINS: http://localhost:3000
+      API_TOKEN: ${API_TOKEN:-}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-}
       AGENT_MODE: echo
     ports:
       - "8000:8000"
@@ -44,9 +48,10 @@ services:
       context: ../apps/web
       dockerfile: Dockerfile
     environment:
-      # Next.js：前端请求走 /api/*，由 next.config.ts rewrite 转发
+      # Next.js：前端请求走 /api/*，由服务端路由注入个人身份与代理凭据
       NEXT_PUBLIC_API_BASE_URL: /api
       API_PROXY_TARGET: http://api:8000
+      API_TOKEN: ${API_TOKEN:-}
     ports:
       - "3000:3000"
     depends_on:

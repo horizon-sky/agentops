@@ -1,8 +1,3 @@
-import { NextResponse } from "next/server";
-import { COOKIE_NAME } from "@/lib/server/auth";
+import { handleAuth } from "@/lib/server/auth";
 
-export async function POST() {
-  const response = NextResponse.json({ authenticated: false });
-  response.cookies.delete(COOKIE_NAME);
-  return response;
-}
+export const POST = (request: Request) => handleAuth(request, "logout");

@@ -1,90 +1,38 @@
 "use client";
 
-import { KeyRound, LoaderCircle } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { createContext, useContext, useEffect } from "react";
+import { loginRequired } from "@/lib/auth";
+import type { AuthUser } from "@/lib/types";
 
-type AuthState = { enabled: boolean; authenticated: boolean };
+const UserContext = createContext<AuthUser | null>(null);
 
-export default function AuthGate({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<AuthState | null>(null);
-  const [token, setToken] = useState("");
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+export function useAuthUser(): AuthUser | null {
+  return useContext(UserContext);
+}
 
-  const loadSession = async () => {
-    const response = await fetch("/api/auth/session", { cache: "no-store" });
-    if (!response.ok) throw new Error("session unavailable");
-    setState((await response.json()) as AuthState);
-  };
-
+export default function AuthGate({ user, children }: { user: AuthUser; children: React.ReactNode }) {
   useEffect(() => {
-    loadSession().catch(() => setError("无法连接认证服务"));
-  }, []);
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setSubmitting(true);
-    setError("");
-    try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
-      });
-      if (!response.ok) {
-        setError("令牌无效，请重试");
-        return;
-      }
-      setToken("");
-      await loadSession();
-    } catch {
-      setError("无法连接认证服务");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (!state) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-muted">
-        <LoaderCircle size={18} className="mr-2 animate-spin" />
-        正在连接工作台
-      </div>
-    );
-  }
-
-  if (!state.enabled || state.authenticated) return <>{children}</>;
-
-  return (
-    <main className="mx-auto flex min-h-screen max-w-md items-center px-6">
-      <form onSubmit={submit} className="glass w-full space-y-5 p-6">
-        <div>
-          <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-brand-gradient text-ink-900">
-            <KeyRound size={18} />
-          </div>
-          <h1 className="heading text-2xl">登录 AgentOps</h1>
-          <p className="mt-2 text-sm text-muted">输入工作台访问令牌以继续。</p>
-        </div>
-        <label className="block text-sm text-muted">
-          访问令牌
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
-            className="mt-2 w-full rounded-lg border border-white/10 bg-ink-800 px-3 py-2 text-white outline-none focus:border-brand-indigo"
-            required
-          />
-        </label>
-        {error ? <p className="text-sm text-danger">{error}</p> : null}
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded-lg bg-brand-indigo px-3 py-2 text-sm font-medium text-white transition hover:bg-brand-indigo/80 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {submitting ? "验证中..." : "进入工作台"}
-        </button>
-      </form>
-    </main>
-  );
+    const check = async () => {
+      try {
+        const response = await fetch("/api/auth/session", { cache: "no-store" });
+        if (response.status === 401) loginRequired();
+        else if (response.ok) {
+          const data = await response.json() as { user: AuthUser };
+          if (data.user.id !== user.id) window.location.reload();
+        }
+      } catch { /* A temporary network failure does not log the user out. */ }
+    };
+    const changed = (event: StorageEvent) => {
+      if (event.key === "agentops_auth_changed") void check();
+    };
+    window.addEventListener("focus", check);
+    window.addEventListener("storage", changed);
+    const timer = window.setInterval(check, 60_000);
+    return () => {
+      window.removeEventListener("focus", check);
+      window.removeEventListener("storage", changed);
+      window.clearInterval(timer);
+    };
+  }, [user.id]);
+  return <UserContext.Provider value={user}>{children}</UserContext.Provider>;
 }

@@ -25,7 +25,9 @@ async def retrieve(state: AgentState, config: Any | None = None) -> dict[str, An
     try:
         from src.rag.hybrid_search import hybrid_search
 
-        hits = await hybrid_search(state["query"], top_k=5, settings=settings)
+        hits = await hybrid_search(
+            state["query"], top_k=5, settings=settings, owner_id=ctx_get("user_id")
+        )
         citations = [hit.model_dump() for hit in hits]
         if not citations:
             note = "empty"

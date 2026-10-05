@@ -41,6 +41,7 @@ class HitlRequest(BaseModel):
 class AgentState(TypedDict, total=False):
     run_id: str
     session_id: str
+    user_id: str
     query: str
     intent: str
     confident: bool

@@ -10,8 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from apps.api.src.deps import cache_dep
+from apps.api.src.routers import auth, ingest, runs, sessions, traces
 from apps.api.src.routers import eval as eval_router
-from apps.api.src.routers import ingest, runs, sessions, traces
 from apps.api.src.schemas.api import HealthOut
 from src.agent.graph import close_graphs
 from src.config import Settings, get_settings
@@ -41,6 +41,10 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings: Settings = get_settings()
+    if settings.app_env == "production" and (
+        not settings.api_token or not settings.has_database
+    ):
+        raise RuntimeError("production requires DATABASE_URL and API_TOKEN")
     app = FastAPI(
         title="AgentOps API",
         description="研发工单自动化 Agent 系统后端",
@@ -56,6 +60,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.include_router(auth.router)
     app.include_router(sessions.router)
     app.include_router(runs.router)
     app.include_router(ingest.router)

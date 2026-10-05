@@ -6,7 +6,7 @@
 
 这是面向研发工单场景的 Agent 工作台。前端使用 Next.js 15 App Router；后端使用 Python 3.12、FastAPI、LangGraph；数据层计划使用 Neon Postgres + pgvector。目标部署为 Vercel 前端和 Railway 后端容器，当前仍处于上线准备阶段，不要把本地降级演示当作生产联调结果。
 
-主要请求链路：`apps/web` 通过 `/api/*` rewrite 访问 FastAPI；`POST /runs` 创建执行，`GET /runs/{id}/stream` 订阅 SSE；`GraphRunner` 按 `classify -> plan -> retrieve -> tools -> review -> answer` 执行，写工具通过 `interrupt` 等待 `POST /runs/{id}/resume`。`AGENT_MODE` 默认是 `echo`，验证真实图编排时须显式设为 `graph`。
+主要请求链路：`apps/web` 通过 `/api/*` 服务端路由访问 FastAPI，将 HttpOnly 登录 Cookie 转为个人 Bearer token，并携带服务端代理凭据；`POST /runs` 创建执行，`GET /runs/{id}/stream` 订阅 SSE；`GraphRunner` 按 `classify -> plan -> retrieve -> tools -> review -> answer` 执行，写工具通过 `interrupt` 等待 `POST /runs/{id}/resume`。`AGENT_MODE` 默认是 `echo`，验证真实图编排时须显式设为 `graph`。
 
 ## 目录与入口
 
@@ -49,4 +49,4 @@ uv run uvicorn apps.api.src.main:app --port 8000
 
 ## 上线前的已知缺口
 
-已建立 Alembic 迁移，`scripts/init_db.py` 负责初始化 pgvector 与业务表；应用启动只检查连接。`runs` 状态写入数据库，但 SSE 事件总线与后台任务仍在进程内，因此部署保持单副本。后端 API 已支持 Bearer token，但浏览器端尚无用户身份验证，公开上线前必须解决。Railway 容器与 CI 配置见 `docs/deploy.md`；发布前仍需核对远程仓库、平台变量和 staging 冒烟结果。
+已建立 Alembic 迁移，`scripts/init_db.py` 负责初始化 pgvector、账号与业务表；应用启动只检查连接。`runs` 状态写入数据库，但 SSE 事件总线、后台任务与请求限流仍在进程内，因此部署保持单副本。浏览器端支持公开注册、邮箱验证及可撤销登录会话，业务资源按用户隔离；公开上线前须验证 Resend 邮件、Postgres 迁移及跨账号访问。Railway 容器与 CI 配置见 `docs/deploy.md`；发布前仍需核对远程仓库、平台变量和 staging 冒烟结果。

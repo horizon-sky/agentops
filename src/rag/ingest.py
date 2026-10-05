@@ -48,6 +48,7 @@ async def ingest_document(
     content: str,
     version: str,
     settings: Settings,
+    owner_id: uuid.UUID,
 ) -> tuple[uuid.UUID, int, int]:
     """返回 (document_id, 切分数量, 向量化数量)。"""
     factory = get_session_factory(settings)
@@ -63,7 +64,7 @@ async def ingest_document(
     embedded = sum(1 for vector in vectors if vector)
 
     async with factory() as session:
-        document = Document(title=title, source=source, version=version)
+        document = Document(title=title, source=source, version=version, owner_id=owner_id)
         session.add(document)
         await session.flush()
 

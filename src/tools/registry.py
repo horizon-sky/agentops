@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from time import perf_counter
 from typing import Any
 
+from src.agent.context import get as ctx_get
 from src.agent.state import ToolResult
 from src.config import Settings
 from src.db.cache import Cache, build_cache
@@ -113,7 +114,10 @@ class ToolRegistry:
 
         # 幂等：key 相同则复用首次结果，避免重复建单
         if spec.idempotent:
-            key = f"tool:{name}:{args.get('idempotency_key') or args.get('title')}"
+            key = (
+                f"tool:{ctx_get('user_id', '')}:{name}:"
+                f"{args.get('idempotency_key') or args.get('title')}"
+            )
             cached = await self.cache.get(key)
             if cached is not None:
                 return ToolResult(
@@ -154,7 +158,7 @@ class ToolRegistry:
 
         if spec.idempotent and tool_result.ok:
             await self.cache.set(
-                f"tool:{name}:{args.get('idempotency_key') or args.get('title')}",
+                key,
                 output,
                 ttl_s=3600,
             )

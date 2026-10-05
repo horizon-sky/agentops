@@ -71,3 +71,9 @@ export interface RunRef {
   model_version?: string;
   prompt_version?: string;
 }
+export interface AuthUser {
+  id: string;
+  email: string;
+  display_name: string;
+  role: "member" | "admin";
+}

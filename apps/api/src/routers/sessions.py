@@ -1,34 +1,25 @@
-"""会话管理：创建与列表。
-
-无数据库时仍返回可用的 session_id，保证前端链路完整可跑。
-"""
+"""当前用户的会话创建与列表。"""
 
 from __future__ import annotations
-
-import uuid
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.src.deps import db_dep, require_token
+from apps.api.src.deps import Principal, auth_db, current_user
 from apps.api.src.schemas.api import CreateSessionIn, SessionOut
 from src.db.models import Session
 
-router = APIRouter(prefix="/sessions", tags=["sessions"], dependencies=[Depends(require_token)])
+router = APIRouter(prefix="/sessions", tags=["sessions"], dependencies=[Depends(current_user)])
 
 
 @router.post("", response_model=SessionOut)
 async def create_session(
     payload: CreateSessionIn,
-    db: AsyncSession | None = Depends(db_dep),
+    db: AsyncSession = Depends(auth_db),
+    identity: Principal = Depends(current_user),
 ) -> SessionOut:
-    if db is None:
-        return SessionOut(
-            id=uuid.uuid4(), title=payload.title, created_at=datetime.now(UTC)
-        )
-    session = Session(title=payload.title)
+    session = Session(title=payload.title, owner_id=identity.user.id)
     db.add(session)
     await db.commit()
     await db.refresh(session)
@@ -38,12 +29,14 @@ async def create_session(
 @router.get("", response_model=list[SessionOut])
 async def list_sessions(
     limit: int = 20,
-    db: AsyncSession | None = Depends(db_dep),
+    db: AsyncSession = Depends(auth_db),
+    identity: Principal = Depends(current_user),
 ) -> list[SessionOut]:
-    if db is None:
-        return []
     rows = (
-        await db.execute(select(Session).order_by(Session.created_at.desc()).limit(limit))
+        await db.execute(
+            select(Session).where(Session.owner_id == identity.user.id)
+            .order_by(Session.created_at.desc()).limit(max(1, min(limit, 100)))
+        )
     ).scalars().all()
     return [
         SessionOut(id=row.id, title=row.title, created_at=row.created_at) for row in rows

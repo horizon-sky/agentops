@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
+from time import monotonic
 
 from apps.api.src.schemas.events import AgentEvent, make_event
 
@@ -69,16 +71,29 @@ async def sse_stream(
     run_id: str,
     event_bus: EventBus | None = None,
     idle_timeout_s: int = 900,
+    authorized: Callable[[], Awaitable[bool]] | None = None,
 ):
     """SSE 生成器：转发事件，空闲时发心跳，遇到 done/error 结束。"""
     event_bus = event_bus or default_bus
     queue = event_bus.subscribe(run_id)
     elapsed = 0
-    yield "retry: 3000\n\n"
+    checked_at = -float("inf")
     try:
+        yield "retry: 3000\n\n"
         while elapsed < idle_timeout_s:
+            if authorized and monotonic() - checked_at >= HEARTBEAT_S:
+                if not await authorized():
+                    yield make_event(
+                        type="error", run_id=run_id,
+                        payload={"message": "登录已过期，请重新登录", "code": "auth_expired"},
+                    ).to_sse()
+                    break
+                checked_at = monotonic()
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_S)
+                timeout = HEARTBEAT_S
+                if authorized:
+                    timeout = max(0, HEARTBEAT_S - (monotonic() - checked_at))
+                event = await asyncio.wait_for(queue.get(), timeout=timeout)
             except TimeoutError:
                 elapsed += HEARTBEAT_S
                 yield make_event(type="ping", run_id=run_id).to_sse()

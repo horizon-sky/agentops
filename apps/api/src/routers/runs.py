@@ -7,18 +7,27 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.src.deps import db_dep, require_token, settings_dep
+from apps.api.src.deps import (
+    Principal,
+    auth_db,
+    current_user,
+    owned_run,
+    owned_session,
+    settings_dep,
+)
 from apps.api.src.schemas.api import CreateRunIn, OkOut, ResumeIn, RunOut
 from apps.api.src.schemas.events import AgentEvent, make_event
 from apps.api.src.sse import bus, sse_stream
 from src.agent.runner import GraphRunner, get_runner
-from src.config import Settings, get_settings
-from src.db.models import Run
+from src.auth import lookup_session
+from src.config import Settings
+from src.db.models import Run, Session, User
 from src.db.session import get_session_factory
 
-router = APIRouter(prefix="/runs", tags=["runs"], dependencies=[Depends(require_token)])
+router = APIRouter(prefix="/runs", tags=["runs"], dependencies=[Depends(current_user)])
 
 # run_id -> 后台任务，用于 abort 与进程内状态跟踪
 _tasks: dict[str, asyncio.Task[None]] = {}
@@ -34,28 +43,46 @@ def _make_emit(run_id: str):
 @router.post("", response_model=RunOut, status_code=status.HTTP_201_CREATED)
 async def create_run(
     payload: CreateRunIn,
-    db: AsyncSession | None = Depends(db_dep),
+    db: AsyncSession = Depends(auth_db),
     settings: Settings = Depends(settings_dep),
+    identity: Principal = Depends(current_user),
 ) -> RunOut:
+    await owned_session(db, payload.session_id, identity.user.id)
+    # Serialize admissions per user so concurrent requests cannot bypass the quota.
+    await db.execute(select(User.id).where(User.id == identity.user.id).with_for_update())
+    user_runs = select(func.count()).select_from(Run).join(Session).where(
+        Session.owner_id == identity.user.id
+    )
+    active = await db.scalar(user_runs.where(Run.status.in_(["running", "awaiting_approval"])))
+    day_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    daily = await db.scalar(user_runs.where(Run.started_at >= day_start))
+    if (active or 0) >= settings.max_active_runs_per_user:
+        raise HTTPException(429, "同时执行或等待审批的任务已达到上限")
+    if (daily or 0) >= settings.max_runs_per_user_per_day:
+        raise HTTPException(429, "今日任务额度已用完")
     run_id = uuid.uuid4()
-    if db is not None:
-        run = Run(
-            id=run_id,
-            session_id=payload.session_id,
-            query=payload.query,
-            status="running",
-            model_version=settings.strong_model,
-            prompt_version=settings.prompt_version,
-        )
-        db.add(run)
-        await db.commit()
+    run = Run(
+        id=run_id,
+        session_id=payload.session_id,
+        query=payload.query,
+        status="running",
+        model_version=settings.strong_model,
+        prompt_version=settings.prompt_version,
+    )
+    db.add(run)
+    await db.commit()
+    user_id = str(identity.user.id)
 
     runner = get_runner(settings)
 
     async def _execute() -> None:
         try:
-            await runner.run(str(run_id), payload.query, _make_emit(str(run_id)))
-            pending = any(event.type == "hitl_request" for event in bus.history(str(run_id)))
+            await runner.run(
+                str(run_id), payload.query, _make_emit(str(run_id)), user_id=user_id
+            )
+            pending = (
+                isinstance(runner, GraphRunner) and await runner.awaiting_approval(str(run_id))
+            )
             await _update_run(
                 run_id,
                 settings,
@@ -95,8 +122,8 @@ async def _update_run(
     if factory is None:
         return
     async with factory() as db:
-        run = await db.get(Run, run_id)
-        if run is None:
+        run = await db.scalar(select(Run).where(Run.id == run_id).with_for_update())
+        if run is None or run.status == "aborted":
             return
         run.status = status
         run.error_stage = error_stage
@@ -106,11 +133,29 @@ async def _update_run(
 
 
 @router.get("/{run_id}/stream")
-async def stream_run(run_id: str):
+async def stream_run(
+    run_id: uuid.UUID,
+    db: AsyncSession = Depends(auth_db),
+    identity: Principal = Depends(current_user),
+    settings: Settings = Depends(settings_dep),
+):
     from fastapi.responses import StreamingResponse
 
+    await owned_run(db, run_id, identity.user.id)
+    await db.rollback()  # The stream uses short independent DB transactions.
+
+    async def authorized() -> bool:
+        factory = get_session_factory(settings)
+        if factory is None:
+            return False
+        try:
+            async with factory() as check_db:
+                return await lookup_session(check_db, identity.token) is not None
+        except Exception:
+            return False  # Fail closed when the session store is unavailable.
+
     return StreamingResponse(
-        sse_stream(run_id),
+        sse_stream(str(run_id), authorized=authorized),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -122,17 +167,26 @@ async def stream_run(run_id: str):
 
 @router.post("/{run_id}/resume", response_model=OkOut)
 async def resume_run(
-    run_id: str,
+    run_id: uuid.UUID,
     payload: ResumeIn,
     settings: Settings = Depends(settings_dep),
+    db: AsyncSession = Depends(auth_db),
+    identity: Principal = Depends(current_user),
 ) -> OkOut:
     """HITL 恢复：从检查点继续执行写类工具。"""
+    run = await owned_run(db, run_id, identity.user.id, lock=True)
+    if run.status != "awaiting_approval":
+        raise HTTPException(409, "当前任务没有待确认操作")
     runner = get_runner(settings)
     if not isinstance(runner, GraphRunner):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="当前为 echo 模式，无待确认任务；设置 AGENT_MODE=graph 后可用",
         )
+
+    run.status = "running"
+    await db.commit()
+    user_id = str(identity.user.id)
 
     async def emit(event: AgentEvent) -> None:
         bus.publish(event)
@@ -143,16 +197,20 @@ async def resume_run(
 
     async def _resume() -> None:
         try:
-            await runner.resume(run_id, payload_dict, emit)
+            await runner.resume(str(run_id), payload_dict, emit, user_id=user_id)
+            pending = await runner.awaiting_approval(str(run_id))
+            final_status = "completed" if payload.ok else "rejected"
             await _update_run(
-                uuid.UUID(run_id), settings, status="completed" if payload.ok else "rejected"
+                run_id, settings,
+                status="awaiting_approval" if pending else final_status,
+                ended=not pending,
             )
         except Exception as exc:  # noqa: BLE001
-            await _update_run(uuid.UUID(run_id), settings, status="failed", error_stage="tools")
+            await _update_run(run_id, settings, status="failed", error_stage="tools")
             bus.publish(
                 make_event(
                     type="error",
-                    run_id=run_id,
+                    run_id=str(run_id),
                     stage="tools",
                     payload={"message": str(exc)[:400]},
                 )
@@ -163,39 +221,45 @@ async def resume_run(
 
 
 @router.post("/{run_id}/abort", response_model=OkOut)
-async def abort_run(run_id: str) -> OkOut:
-    task = _tasks.get(run_id)
+async def abort_run(
+    run_id: uuid.UUID,
+    db: AsyncSession = Depends(auth_db),
+    identity: Principal = Depends(current_user),
+) -> OkOut:
+    run = await owned_run(db, run_id, identity.user.id, lock=True)
+    task = _tasks.get(f"{run_id}:resume") or _tasks.get(str(run_id))
     if task and not task.done():
         task.cancel()
-        await _update_run(uuid.UUID(run_id), get_settings(), status="aborted")
+        # Commit with the existing lock, rather than deadlocking a second transaction.
+        run.status = "aborted"
+        run.ended_at = datetime.now(UTC)
+        await db.commit()
         bus.publish(
-            make_event(type="done", run_id=run_id, payload={"aborted": True})
+            make_event(type="done", run_id=str(run_id), payload={"aborted": True})
         )
         return OkOut(ok=True, detail="已中断")
-    return OkOut(ok=False, detail=f"未找到运行中的任务 {run_id}")
+    if run.status in {"running", "awaiting_approval"}:
+        run.status = "aborted"
+        run.ended_at = datetime.now(UTC)
+        await db.commit()
+        return OkOut(ok=True, detail="已中断")
+    return OkOut(ok=False, detail="任务已经结束")
 
 
 @router.get("/{run_id}/status")
-async def run_status(run_id: str) -> dict[str, object]:
-    task = _tasks.get(run_id)
-    events = bus.history(run_id)
-    persisted: dict[str, object] = {}
-    settings = get_settings()
-    factory = get_session_factory(settings)
-    if factory is not None:
-        try:
-            async with factory() as db:
-                run = await db.get(Run, uuid.UUID(run_id))
-                if run is not None:
-                    persisted = {"status": run.status, "error_stage": run.error_stage}
-        except Exception:  # 数据库暂时不可用时回退到进程内状态
-            pass
-    current_state = str(persisted.get("status", ""))
+async def run_status(
+    run_id: uuid.UUID,
+    db: AsyncSession = Depends(auth_db),
+    identity: Principal = Depends(current_user),
+) -> dict[str, object]:
+    run = await owned_run(db, run_id, identity.user.id)
+    events = bus.history(str(run_id))
     return {
-        "run_id": run_id,
-        "state": current_state or ("running" if task and not task.done() else "finished"),
+        "run_id": str(run_id),
+        "state": run.status,
+        "status": run.status,
+        "error_stage": run.error_stage,
         "event_count": len(events),
         "last_event_at": events[-1].ts.isoformat() if events else None,
         "checked_at": datetime.now(UTC).isoformat(),
-        **persisted,
     }

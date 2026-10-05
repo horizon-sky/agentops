@@ -9,7 +9,7 @@ import CostBar from "@/components/CostBar";
 import SessionList from "@/components/SessionList";
 import Timeline from "@/components/Timeline";
 import ToolCard from "@/components/ToolCard";
-import { createSession } from "@/lib/api";
+import { createSession, listSessions } from "@/lib/api";
 import type { Session } from "@/lib/types";
 import { useRun } from "@/lib/useRun";
 
@@ -26,12 +26,15 @@ export default function Workbench() {
   const run = useRun();
 
   useEffect(() => {
-    createSession("工单排查会话")
-      .then((session) => {
-        setSessions([session]);
-        setActiveId(session.id);
+    let cancelled = false;
+    listSessions()
+      .then((items) => {
+        if (cancelled) return;
+        setSessions(items);
+        setActiveId(items[0]?.id ?? null);
       })
       .catch(() => undefined);
+    return () => { cancelled = true; };
   }, []);
 
   const newSession = async () => {

@@ -19,7 +19,7 @@ Emit = Callable[[AgentEvent], Awaitable[None]]
 
 @runtime_checkable
 class Runner(Protocol):
-    async def run(self, run_id: str, query: str, emit: Emit) -> None: ...
+    async def run(self, run_id: str, query: str, emit: Emit, *, user_id: str = "") -> None: ...
 
 
 class EchoRunner:
@@ -29,7 +29,7 @@ class EchoRunner:
         self.settings = settings
         self.llm = build_llm(settings)
 
-    async def run(self, run_id: str, query: str, emit: Emit) -> None:
+    async def run(self, run_id: str, query: str, emit: Emit, *, user_id: str = "") -> None:
         await emit(
             make_event(
                 type="plan",
@@ -76,10 +76,15 @@ class GraphRunner:
         self.settings = settings
         self.llm = build_llm(settings)
 
-    def _config(self, run_id: str, emit: Emit) -> dict[str, Any]:
+    def _config(self, run_id: str, emit: Emit, user_id: str = "") -> dict[str, Any]:
         # 依赖通过 contextvars 注入节点，config 只保留 LangGraph 需要的 thread_id
-        bind(emit=emit, settings=self.settings, llm=self.llm, run_id=run_id)
+        bind(emit=emit, settings=self.settings, llm=self.llm, run_id=run_id, user_id=user_id)
         return {"configurable": {"thread_id": run_id}}
+
+    async def awaiting_approval(self, run_id: str) -> bool:
+        graph, _persisted = await build_graph(self.settings, self.llm)
+        checkpoint = await graph.aget_state({"configurable": {"thread_id": run_id}})
+        return any(task.interrupts for task in checkpoint.tasks)
 
     async def run(
         self,
@@ -87,11 +92,14 @@ class GraphRunner:
         query: str,
         emit: Emit,
         pending_calls: list[dict[str, Any]] | None = None,
+        *,
+        user_id: str = "",
     ) -> None:
         graph, _persisted = await build_graph(self.settings, self.llm)
         state: dict[str, Any] = {
             "run_id": run_id,
             "session_id": "",
+            "user_id": user_id,
             "query": query,
             "plan": [],
             "citations": [],
@@ -101,17 +109,23 @@ class GraphRunner:
         if pending_calls:
             state["pending_calls"] = pending_calls
         try:
-            await graph.ainvoke(state, self._config(run_id, emit))
+            await graph.ainvoke(state, self._config(run_id, emit, user_id))
         except Exception as exc:  # noqa: BLE001
             # interrupt() 抛出 GraphInterrupt：任务处于等待人工确认状态，不视为失败
             if type(exc).__name__ == "GraphInterrupt":
                 return
             raise
 
-    async def resume(self, run_id: str, payload: dict[str, Any], emit: Emit) -> None:
+    async def resume(
+        self, run_id: str, payload: dict[str, Any], emit: Emit, *, user_id: str = ""
+    ) -> None:
         graph, _persisted = await build_graph(self.settings, self.llm)
+        config = self._config(run_id, emit, user_id)
+        checkpoint = await graph.aget_state(config)
+        if checkpoint.values.get("user_id", "") != user_id:
+            raise PermissionError("checkpoint owner mismatch")
         try:
-            await graph.ainvoke(Command(resume=payload), self._config(run_id, emit))
+            await graph.ainvoke(Command(resume=payload), config)
         except Exception as exc:  # noqa: BLE001
             if type(exc).__name__ == "GraphInterrupt":
                 return

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 
 class CreateSessionIn(BaseModel):
-    title: str = "新会话"
+    title: str = Field(default="新会话", min_length=1, max_length=200)
 
 
 class SessionOut(BaseModel):
@@ -45,10 +45,10 @@ class OkOut(BaseModel):
 
 
 class IngestIn(BaseModel):
-    title: str
-    source: str = ""
-    content: str = ""
-    version: str = "v1"
+    title: str = Field(min_length=1, max_length=300)
+    source: str = Field(default="", max_length=500)
+    content: str = Field(min_length=1, max_length=1_000_000)
+    version: str = Field(default="v1", max_length=64)
 
 
 class IngestOut(BaseModel):

@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
-import AuthGate from "@/components/AuthGate";
-import TopNav from "@/components/TopNav";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "AgentOps · 研发工单自动化 Agent 工作台",
   description:
     "基于 LangGraph 与 MCP 的研发工单自动化 Agent 系统：可控、可测、可观测的执行链路与人机协同审批。",
+  referrer: "no-referrer",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -21,10 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <AuthGate>
-          <TopNav />
-          <div className="mx-auto max-w-[1600px] px-6 pb-8 pt-[88px]">{children}</div>
-        </AuthGate>
+        {children}
       </body>
     </html>
   );

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from apps.api.src.schemas.events import AgentEvent
 from src.agent.context import bind
 from src.agent.graph import build_graph
@@ -133,3 +135,59 @@ async def test_rejected_write_tool_is_never_executed(monkeypatch) -> None:
         event.type == "tool_result" and event.payload.get("error") == "用户拒绝或未确认"
         for event in collector.events
     )
+
+
+async def test_only_checkpoint_owner_can_approve_write_tools(monkeypatch) -> None:
+    from src.agent.state import ToolResult
+    from src.tools.registry import ToolRegistry
+
+    calls = []
+
+    async def call(self, name, args):
+        calls.append((name, args))
+        return ToolResult(name=name, args=args, ok=True, output={"status": "created"})
+
+    monkeypatch.setattr(ToolRegistry, "call", call)
+    runner = GraphRunner(Settings(_env_file=None))
+    collector = Collector()
+    await runner.run(
+        "owned-approval", "帮我建工单", collector, user_id="alice",
+        pending_calls=[{"name": "create_ticket", "args": {"title": "Private"}}],
+    )
+    assert await runner.awaiting_approval("owned-approval")
+    assert calls == []
+    with pytest.raises(PermissionError):
+        await runner.resume("owned-approval", {"ok": True}, collector, user_id="bob")
+    assert calls == []
+    await runner.resume("owned-approval", {"ok": True}, collector, user_id="alice")
+    assert calls == [("create_ticket", {"title": "Private"})]
+    assert not await runner.awaiting_approval("owned-approval")
+    assert collector.types[-1] == "done"
+
+
+async def test_each_write_tool_needs_separate_confirmation(monkeypatch) -> None:
+    from src.agent.state import ToolResult
+    from src.tools.registry import ToolRegistry
+
+    calls = []
+
+    async def call(self, name, args):
+        calls.append(args["title"])
+        return ToolResult(name=name, args=args, ok=True)
+
+    monkeypatch.setattr(ToolRegistry, "call", call)
+    runner = GraphRunner(Settings(_env_file=None))
+    collector = Collector()
+    await runner.run(
+        "two-approvals", "帮我建工单", collector, user_id="alice",
+        pending_calls=[
+            {"name": "create_ticket", "args": {"title": "First"}},
+            {"name": "create_ticket", "args": {"title": "Second"}},
+        ],
+    )
+    await runner.resume("two-approvals", {"ok": True}, collector, user_id="alice")
+    assert await runner.awaiting_approval("two-approvals")
+    assert calls == []
+    await runner.resume("two-approvals", {"ok": False}, collector, user_id="alice")
+    assert not await runner.awaiting_approval("two-approvals")
+    assert calls == ["First"]

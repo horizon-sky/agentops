@@ -68,3 +68,5 @@ jobs:
         run: pnpm exec tsc --noEmit
       - name: Production build
         run: pnpm build
+      - name: Authentication proxy smoke test
+        run: node tests/auth-smoke.mjs

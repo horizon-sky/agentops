@@ -8,10 +8,10 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends
 
-from apps.api.src.deps import require_token
+from apps.api.src.deps import admin_user
 from apps.api.src.schemas.api import EvalReportOut
 
-router = APIRouter(prefix="/eval", tags=["eval"], dependencies=[Depends(require_token)])
+router = APIRouter(prefix="/eval", tags=["eval"], dependencies=[Depends(admin_user)])
 
 REPORT_PATH = Path("evals/report.json")
 

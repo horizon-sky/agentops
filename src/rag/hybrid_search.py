@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -32,6 +33,7 @@ async def hybrid_search(
     query: str,
     top_k: int = 5,
     settings: Settings | None = None,
+    owner_id: str | None = None,
 ) -> list[ChunkHit]:
     if settings is None:
         from src.config import get_settings
@@ -41,6 +43,10 @@ async def hybrid_search(
     engine = get_engine(settings)
     if engine is None:
         return []
+    if not owner_id:
+        return []
+    # Always scope before ranking, including the keyword-only fallback.
+    owner_id = str(UUID(owner_id))
 
     query = query.strip()
     if not query:
@@ -61,7 +67,7 @@ async def hybrid_search(
                ROW_NUMBER() OVER (ORDER BY c.embedding <=> CAST(:qv AS vector)) AS rank
         FROM chunks c
         JOIN documents d ON d.id = c.document_id
-        WHERE c.embedding IS NOT NULL
+        WHERE c.embedding IS NOT NULL AND d.owner_id = CAST(:owner_id AS uuid)
         ORDER BY c.embedding <=> CAST(:qv AS vector)
         LIMIT :lim
     """
@@ -73,6 +79,7 @@ async def hybrid_search(
         FROM chunks c
         JOIN documents d ON d.id = c.document_id
         WHERE c.tsv @@ plainto_tsquery('simple', :q)
+          AND d.owner_id = CAST(:owner_id AS uuid)
         ORDER BY ts_rank_cd(c.tsv, plainto_tsquery('simple', :q)) DESC
         LIMIT :lim
     """
@@ -85,7 +92,7 @@ async def hybrid_search(
                COALESCE(1.0 / ({RRF_K} + v.rank), 0)
                + COALESCE(1.0 / ({RRF_K} + k.rank), 0) AS score
         FROM vec v
-        FULL OUTER JOIN kw k ON v.chunk_id = k.chunk_id
+        FULL OUTER JOIN kw k ON v.chunk_id = k.chunk_id AND v.document_id = k.document_id
         ORDER BY score DESC
         LIMIT :lim
     """
@@ -98,7 +105,7 @@ async def hybrid_search(
         LIMIT :lim
     """
 
-    params: dict[str, Any] = {"q": query, "lim": CANDIDATES}
+    params: dict[str, Any] = {"q": query, "lim": CANDIDATES, "owner_id": owner_id}
     if query_vector is not None:
         params["qv"] = "[" + ",".join(f"{value:.6f}" for value in query_vector) + "]"
         sql = fused_sql

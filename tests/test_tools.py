@@ -54,3 +54,28 @@ async def test_unknown_tool_returns_error_result() -> None:
     result = await registry.call("not_exists", {})
     assert result.ok is False
     assert "未注册" in (result.error or "")
+
+
+async def test_same_idempotency_key_never_shares_outputs_between_users() -> None:
+    from src.agent.context import bind, get
+
+    registry = _registry()
+    calls = []
+
+    def execute(args):
+        calls.append(get("user_id"))
+        return {"private_owner": get("user_id")}
+
+    registry.executors["create_ticket"] = execute
+    args = {"title": "Same title", "idempotency_key": "same-key"}
+    try:
+        bind(user_id="alice")
+        first = await registry.call("create_ticket", args)
+        assert (await registry.call("create_ticket", args)).output == first.output
+        bind(user_id="bob")
+        second = await registry.call("create_ticket", args)
+        assert first.output == {"private_owner": "alice"}
+        assert second.output == {"private_owner": "bob"}
+        assert calls == ["alice", "bob"]
+    finally:
+        bind(user_id="")

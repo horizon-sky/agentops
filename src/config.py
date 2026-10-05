@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     api_port: int = 8000
     cors_origins: str = "http://localhost:3000"
     api_token: str = ""
+    web_origin: str = "http://localhost:3000"
+    resend_api_key: str = ""
+    mail_from: str = ""
+    auth_session_hours: int = 8
+    max_active_runs_per_user: int = 2
+    max_runs_per_user_per_day: int = 50
+    max_ingests_per_user_per_day: int = 20
 
     # ---- 数据层 ----
     database_url: str = ""
