@@ -22,11 +22,30 @@ export interface AgentEvent {
 
 export interface Citation {
   chunk_id: string;
+  citation_id?: string | null;
   document_id?: string | null;
   title?: string;
   snippet?: string;
   score?: number;
   source?: string;
+  source_url?: string;
+  heading?: string;
+  retrieval_method?: string;
+}
+
+export interface RetrievalDiagnostic {
+  mode?: "echo" | "graph";
+  status?: "not_executed" | "unavailable" | "no_documents" | "no_match" | "hit";
+  reason?: string;
+}
+
+export interface ChunkPreview {
+  citation_id: string;
+  document_id: string;
+  title: string;
+  source_url: string;
+  heading: string;
+  content: string;
 }
 
 export interface ToolResultPayload {
@@ -73,6 +92,7 @@ export interface RunSnapshot {
   query?: string;
   answer?: string;
   citations?: Citation[];
+  retrieval?: RetrievalDiagnostic;
   tool_results?: ToolResultPayload[];
   ended_at?: string | null;
 }
@@ -86,6 +106,7 @@ export interface RunRef {
   query?: string;
   answer?: string;
   citations?: Citation[];
+  retrieval?: RetrievalDiagnostic;
   tool_results?: ToolResultPayload[];
   ended_at?: string | null;
 }

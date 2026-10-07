@@ -4,12 +4,14 @@ import { AlertTriangle, Bot, Sparkles, User } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import ApprovalCard from "@/components/ApprovalCard";
 import CitationPanel from "@/components/CitationPanel";
+import DocumentIngest from "@/components/DocumentIngest";
 import Composer from "@/components/Composer";
 import CostBar from "@/components/CostBar";
 import SessionList from "@/components/SessionList";
 import Timeline from "@/components/Timeline";
 import ToolCard from "@/components/ToolCard";
 import { createSession, listSessionRuns, listSessions } from "@/lib/api";
+import { answerParts, citationId } from "@/lib/citations";
 import type { Session } from "@/lib/types";
 import { useRun } from "@/lib/useRun";
 
@@ -23,7 +25,10 @@ export default function Workbench() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [hoveredChunk, setHoveredChunk] = useState<string | null>(null);
+  const [selectedCitation, setSelectedCitation] = useState<string | null>(null);
   const run = useRun();
+
+  useEffect(() => { setHoveredChunk(null); setSelectedCitation(null); }, [run.runId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,14 +67,13 @@ export default function Workbench() {
 
   const answerWithAnchors = useMemo(() => {
     if (!run.answer) return null;
-    const parts = run.answer.split(/(\[[^\]]+\])/g);
-    return parts.map((part, index) => {
-      const matched = /^\[([^\]]+)\]$/.exec(part);
-      if (matched) {
-        const chunkId = matched[1];
+    return answerParts(run.answer, run.citations).map(({ text, citation }, index) => {
+      if (citation) {
+        const chunkId = citationId(citation);
         return (
           <button
             key={index}
+            onClick={() => setSelectedCitation(chunkId)}
             onMouseEnter={() => setHoveredChunk(chunkId)}
             onMouseLeave={() => setHoveredChunk(null)}
             className={`mx-0.5 rounded px-1 font-mono text-[11px] transition ${
@@ -78,13 +82,13 @@ export default function Workbench() {
                 : "bg-white/5 text-brand-cyan/80 hover:bg-brand-cyan/15"
             }`}
           >
-            [{chunkId}]
+            {text}
           </button>
         );
       }
-      return <span key={index}>{part}</span>;
+      return <span key={index}>{text}</span>;
     });
-  }, [run.answer, hoveredChunk]);
+  }, [run.answer, run.citations, hoveredChunk]);
 
   const submit = async (query: string) => {
     let sessionId = activeId;
@@ -177,7 +181,11 @@ export default function Workbench() {
               citations={run.citations}
               activeChunkId={hoveredChunk}
               onHover={setHoveredChunk}
+              selectedId={selectedCitation}
+              onSelect={setSelectedCitation}
+              retrieval={run.retrieval}
             />
+            <DocumentIngest />
             <CostBar steps={run.steps} totalMs={run.totalMs} />
           </div>
         </div>

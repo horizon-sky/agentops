@@ -34,6 +34,7 @@ class RunOut(BaseModel):
     query: str = ""
     answer: str = ""
     citations: list[dict[str, Any]] = Field(default_factory=list)
+    retrieval: dict[str, Any] = Field(default_factory=dict)
     tool_results: list[dict[str, Any]] = Field(default_factory=list)
     ended_at: datetime | None = None
 

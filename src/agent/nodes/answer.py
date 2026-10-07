@@ -18,7 +18,8 @@ def _build_context(state: AgentState) -> str:
     lines = []
     for index, citation in enumerate(state.get("citations", []), start=1):
         lines.append(
-            f"[{citation.get('chunk_id', index)}] {citation.get('title', '')}: "
+            f"[{citation.get('citation_id') or citation.get('chunk_id', index)}] "
+            f"{citation.get('title', '')}: "
             f"{citation.get('snippet', '')}"
         )
     return "\n".join(lines) or "（无参考资料）"
@@ -79,6 +80,7 @@ async def answer(state: AgentState, config: Any | None = None) -> dict[str, Any]
             payload={
                 "answer": text,
                 "citations": state.get("citations", []),
+                "retrieval": state.get("retrieval", {}),
                 "tools": state.get("tool_results", []),
             },
             ms=timer.ms,

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { abortRun, createRun, resumeRun, streamRun } from "./api";
 import { isHitl, isToolResult } from "./api";
-import type { AgentEvent, Citation, RunSnapshot, Stage, ToolResultPayload } from "./types";
+import type { AgentEvent, Citation, RetrievalDiagnostic, RunSnapshot, Stage, ToolResultPayload } from "./types";
+import { retrievalMessage } from "./citations";
 
 export interface TimelineStep {
   stage: Stage;
@@ -35,6 +36,7 @@ export function useRun() {
   const [steps, setSteps] = useState<TimelineStep[]>(initialSteps);
   const [answer, setAnswer] = useState("");
   const [citations, setCitations] = useState<Citation[]>([]);
+  const [retrieval, setRetrieval] = useState<RetrievalDiagnostic | null>(null);
   const [tools, setTools] = useState<ToolResultPayload[]>([]);
   const [hitl, setHitl] = useState<{ tool: string; args: Record<string, unknown> } | null>(null);
   const [status, setStatus] = useState<"idle" | "running" | "waiting" | "done" | "error">("idle");
@@ -73,10 +75,11 @@ export function useRun() {
           });
           break;
         case "retrieve":
+          setRetrieval((payload.retrieval as RetrievalDiagnostic) ?? null);
           patchStep("retrieve", {
-            status: "done",
+            status: (payload.retrieval as RetrievalDiagnostic)?.status === "unavailable" ? "error" : "done",
             ms: event.ms ?? 0,
-            detail: `命中 ${String(payload.hits ?? 0)} 条 · ${String(payload.note ?? "")}`,
+            detail: `命中 ${String(payload.hits ?? 0)} 条 · ${retrievalMessage(payload.retrieval as RetrievalDiagnostic)}`,
           });
           if (Array.isArray(payload.citations)) {
             setCitations(payload.citations as unknown as Citation[]);
@@ -106,6 +109,7 @@ export function useRun() {
           patchStep("generate", { status: "running", detail: "流式生成中" });
           break;
         case "done":
+          if (payload.retrieval) setRetrieval(payload.retrieval as RetrievalDiagnostic);
           setHitl(null);
           setStatus("done");
           patchStep("generate", { status: "done", ms: event.ms ?? 0, detail: "已完成" });
@@ -136,6 +140,7 @@ export function useRun() {
       setSteps(initialSteps());
       setAnswer("");
       setCitations([]);
+      setRetrieval(null);
       setTools([]);
       setHitl(null);
       setError(null);
@@ -160,6 +165,7 @@ export function useRun() {
       setSteps(initialSteps());
       setAnswer("");
       setCitations([]);
+      setRetrieval(null);
       setTools([]);
       setHitl(null);
       setError(null);
@@ -170,9 +176,13 @@ export function useRun() {
     setRunId(snapshot.id);
     setAnswer(snapshot.answer ?? "");
     setCitations(snapshot.citations ?? []);
+    setRetrieval(snapshot.retrieval ?? null);
     setTools(snapshot.tool_results ?? []);
     setSteps(
       initialSteps().map((step) => {
+        if (step.stage === "retrieve" && snapshot.retrieval?.status) {
+          return { ...step, status: snapshot.retrieval.status === "unavailable" ? "error" : "done", detail: retrievalMessage(snapshot.retrieval) };
+        }
         if (step.stage === "tools" && snapshot.tool_results?.length) {
           return { ...step, status: "done", detail: "已恢复工具结果" };
         }
@@ -225,6 +235,7 @@ export function useRun() {
     steps,
     answer,
     citations,
+    retrieval,
     tools,
     hitl,
     status,

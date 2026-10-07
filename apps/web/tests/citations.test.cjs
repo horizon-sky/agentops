@@ -1,0 +1,28 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const ts = require("typescript");
+const source = fs.readFileSync(path.join(__dirname, "../lib/citations.ts"), "utf8");
+const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+const sandbox = { exports: {}, URL };
+vm.runInNewContext(compiled, sandbox);
+const { answerParts, sourceLink, citationId, retrievalMessage } = sandbox.exports;
+
+const first = { chunk_id: "same-hash", citation_id: "first-uuid", document_id: "doc-a" };
+const second = { chunk_id: "same-hash", citation_id: "second-uuid", document_id: "doc-b" };
+const answer = "[无参考资料] [first-uuid] [second-uuid] [same-hash] [未知]";
+const parts = answerParts(answer, [first, second]);
+assert.equal(parts.map((p) => p.text).join(""), answer);
+assert.equal(parts.filter((p) => p.citation).length, 2);
+assert.equal(parts.find((p) => p.text === "[first-uuid]").citation.document_id, "doc-a");
+assert.equal(parts.find((p) => p.text === "[second-uuid]").citation.document_id, "doc-b");
+assert.equal(citationId({ chunk_id: "legacy" }), "legacy");
+assert.equal(answerParts("[legacy] [无参考资料]", [{ chunk_id: "legacy", snippet: "saved" }]).filter((p) => p.citation).length, 1);
+for (const unsafe of ["javascript:alert(1)", "data:text/html,test", "file:///etc/passwd", "//example.com", "plain source"]) assert.equal(sourceLink(unsafe), null);
+assert.equal(sourceLink("https://example.com/manual"), "https://example.com/manual");
+assert.match(retrievalMessage({ mode: "echo", status: "not_executed" }), /echo/);
+assert.match(retrievalMessage({ mode: "graph", status: "no_documents", reason: "empty_library" }), /没有可检索/);
+assert.match(retrievalMessage({ mode: "graph", status: "unavailable", reason: "retrieval_error" }), /异常/);
+assert.match(retrievalMessage({}), /无法判断/);
+console.log("Citation regression tests passed");

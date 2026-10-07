@@ -28,6 +28,9 @@ async def rerank_hits(
             update={
                 "score": float(scores[index]),
                 "source": f"{hits[index].source}+rerank",
+                "retrieval_method": (
+                    f"{hits[index].retrieval_method or hits[index].source}+rerank"
+                ),
             }
         )
         reranked.append(hit)

@@ -75,6 +75,7 @@ async def list_session_runs(
             query=row.query,
             answer=row.answer,
             citations=row.citations or [],
+            retrieval=row.retrieval or {},
             tool_results=row.tool_results or [],
             ended_at=row.ended_at,
         )

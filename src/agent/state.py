@@ -47,6 +47,7 @@ class AgentState(TypedDict, total=False):
     confident: bool
     plan: list[str]
     citations: list[dict[str, Any]]
+    retrieval: dict[str, Any]
     pending_calls: list[dict[str, Any]]
     tool_results: list[dict[str, Any]]
     hitl: dict[str, Any] | None

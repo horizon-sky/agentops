@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 from sqlalchemy import select, update
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.ext.compiler import compiles
 
@@ -20,7 +20,18 @@ from apps.api.src.schemas.events import make_event
 from apps.api.src.sse import bus
 from src.auth import _attempts, token_digest
 from src.config import Settings
-from src.db.models import AuthSession, AuthToken, Base, Document, Run, Session, Ticket, Trace, User
+from src.db.models import (
+    AuthSession,
+    AuthToken,
+    Base,
+    Chunk,
+    Document,
+    Run,
+    Session,
+    Ticket,
+    Trace,
+    User,
+)
 
 PASSWORD = "account-test-password"
 
@@ -28,6 +39,11 @@ PASSWORD = "account-test-password"
 @compiles(JSONB, "sqlite")
 def sqlite_json(type_, compiler, **kwargs):
     return "JSON"
+
+
+@compiles(TSVECTOR, "sqlite")
+def sqlite_tsv(type_, compiler, **kwargs):
+    return "TEXT"
 
 
 @pytest.fixture
@@ -47,6 +63,7 @@ async def account_app(tmp_path, monkeypatch):
                         Session,
                         Run,
                         Document,
+                        Chunk,
                         Trace,
                         Ticket,
                     )
@@ -670,3 +687,124 @@ async def test_ticket_commit_failure_never_reports_success(account_app, monkeypa
             assert await db.scalar(select(Ticket)) is None
     finally:
         bind(user_id="", run_id="", write_approved=False)
+
+
+async def test_chunk_preview_uses_uuid_and_enforces_document_owner(account_app):
+    client, factory, mail, _ = account_app
+    alice = await signed_in(client, mail)
+    bob = await signed_in(client, mail, "bob@example.com")
+    owner_id, _ = await ticket_run(client, factory, alice)
+    async with factory() as db:
+        first = Document(title="First", source="https://example.com/first", owner_id=owner_id)
+        second = Document(title="Second", owner_id=owner_id)
+        db.add_all([first, second])
+        await db.flush()
+        a = Chunk(
+            document_id=first.id,
+            chunk_id="same-hash",
+            content="Original text",
+            meta={"heading": "Section"},
+        )
+        b = Chunk(document_id=second.id, chunk_id="same-hash", content="Original text")
+        db.add_all([a, b])
+        await db.commit()
+    preview = await client.get(f"/documents/{first.id}/chunks/{a.id}", headers=alice)
+    assert preview.status_code == 200
+    assert preview.json()["content"] == "Original text"
+    assert preview.json()["heading"] == "Section"
+    assert preview.json()["source_url"] == "https://example.com/first"
+    assert (
+        await client.get(f"/documents/{first.id}/chunks/{a.id}", headers=bob)
+    ).status_code == 404
+    assert (
+        await client.get(f"/documents/{first.id}/chunks/{b.id}", headers=alice)
+    ).status_code == 404
+    other = await client.get(f"/documents/{second.id}/chunks/{b.id}", headers=alice)
+    assert other.json()["title"] == "Second"
+
+
+async def test_retrieval_diagnostics_survive_refresh_and_partial_completion(account_app):
+    client, factory, mail, settings = account_app
+    headers = await signed_in(client, mail)
+    _, run_id = await ticket_run(client, factory, headers)
+    diagnosis = {"mode": "graph", "status": "no_match", "reason": "no_match"}
+    await runs._persist_run_result(
+        str(run_id),
+        settings,
+        make_event(
+            type="retrieve", run_id=str(run_id), payload={"citations": [], "retrieval": diagnosis}
+        ),
+    )
+    async with factory() as db:
+        session_id = (await db.get(Run, run_id)).session_id
+    snapshot = (await client.get(f"/sessions/{session_id}/runs", headers=headers)).json()[0]
+    assert snapshot["retrieval"] == diagnosis
+    await runs._persist_run_result(
+        str(run_id),
+        settings,
+        make_event(
+            type="done",
+            run_id=str(run_id),
+            payload={"answer": "No evidence", "citations": [], "retrieval": diagnosis},
+        ),
+    )
+    await runs._persist_run_result(
+        str(run_id),
+        settings,
+        make_event(type="done", run_id=str(run_id), payload={"aborted": True}),
+    )
+    refreshed = (await client.get(f"/sessions/{session_id}/runs", headers=headers)).json()[0]
+    assert refreshed["retrieval"] == diagnosis
+    assert refreshed["answer"] == "No evidence"
+
+
+@pytest.mark.parametrize("outcome", ["no_documents", "no_match", "hit", "unavailable"])
+async def test_retrieval_reports_empty_library_matches_and_failure(
+    account_app, monkeypatch, outcome
+):
+    import importlib
+
+    from src.agent.context import bind
+    from src.agent.nodes.retrieve import retrieve
+    from src.rag.hybrid_search import ChunkHit
+
+    client, factory, mail, settings = account_app
+    headers = await signed_in(client, mail)
+    user_id, run_id = await ticket_run(client, factory, headers)
+    monkeypatch.setattr(
+        importlib.import_module("src.agent.nodes.retrieve"),
+        "get_session_factory",
+        lambda _: factory,
+    )
+    async with factory() as db:
+        if outcome != "no_documents":
+            doc = Document(owner_id=user_id, title="Manual")
+            db.add(doc)
+            await db.flush()
+            db.add(Chunk(document_id=doc.id, chunk_id="hash", content="Text"))
+            await db.commit()
+    calls = []
+
+    async def search(query, **kwargs):
+        calls.append(kwargs["owner_id"])
+        if outcome == "unavailable":
+            raise RuntimeError("private credentials must not enter events")
+        return (
+            [ChunkHit(chunk_id="hash", citation_id=str(uuid.uuid4()))] if outcome == "hit" else []
+        )
+
+    monkeypatch.setattr("src.rag.hybrid_search.hybrid_search", search)
+    events = []
+
+    async def emit(event):
+        events.append(event)
+
+    bind(user_id=str(user_id), settings=settings, emit=emit)
+    try:
+        result = await retrieve({"query": "Query", "run_id": str(run_id)})
+        assert result["retrieval"]["status"] == outcome
+        assert bool(result["citations"]) == (outcome == "hit")
+        assert calls == ([] if outcome == "no_documents" else [str(user_id)])
+        assert "private credentials" not in str(events)
+    finally:
+        bind(user_id="", emit=None)

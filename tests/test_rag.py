@@ -21,6 +21,27 @@ def test_chunk_ids_are_stable() -> None:
     assert [item["chunk_id"] for item in first] == [item["chunk_id"] for item in second]
 
 
+def test_context_uses_unique_citation_uuid_instead_of_shared_content_hash() -> None:
+    from src.agent.nodes.answer import _build_context
+
+    hits = [
+        ChunkHit(chunk_id="same", citation_id="uuid-a", document_id="a", snippet="Text"),
+        ChunkHit(chunk_id="same", citation_id="uuid-b", document_id="b", snippet="Text"),
+    ]
+    context, citations = build_context(hits)
+    assert "[uuid-a]" in context and "[uuid-b]" in context
+    assert "[same]" not in context
+    assert "[uuid-b]" in _build_context({"citations": citations})
+
+
+def test_chinese_keyword_terms_do_not_depend_on_embedding() -> None:
+    from src.rag.hybrid_search import keyword_terms
+
+    assert "支付" in keyword_terms("支付回调超时怎么处理")
+    assert "超时" in keyword_terms("支付回调超时怎么处理")
+    assert keyword_terms("5xx order-service") == ["5xx", "order-service"]
+
+
 def test_build_context_truncates_by_token_budget() -> None:
     hits = [
         ChunkHit(

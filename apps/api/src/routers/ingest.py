@@ -45,7 +45,7 @@ async def ingest_document_api(
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"入库失败：{str(exc)[:200]}",
+            detail="入库失败，请检查数据库与 Embedding 服务配置后重试",
         ) from exc
 
     return IngestOut(document_id=uuid.UUID(str(document_id)), chunks=chunks, embedded=embedded)

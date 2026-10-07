@@ -30,6 +30,7 @@ class EchoRunner:
         self.llm = build_llm(settings)
 
     async def run(self, run_id: str, query: str, emit: Emit, *, user_id: str = "") -> None:
+        retrieval = {"mode": "echo", "status": "not_executed", "reason": "echo_mode"}
         await emit(
             make_event(
                 type="plan",
@@ -43,7 +44,12 @@ class EchoRunner:
                 type="retrieve",
                 run_id=run_id,
                 stage="retrieve",
-                payload={"hits": 0, "note": "M4 接入混合检索前为空"},
+                payload={
+                    "hits": 0,
+                    "note": "echo 模式未执行检索",
+                    "citations": [],
+                    "retrieval": retrieval,
+                },
                 ms=0,
             )
         )
@@ -64,7 +70,7 @@ class EchoRunner:
             make_event(
                 type="done",
                 run_id=run_id,
-                payload={"answer": "".join(chunks), "citations": []},
+                payload={"answer": "".join(chunks), "citations": [], "retrieval": retrieval},
             )
         )
 
@@ -103,6 +109,7 @@ class GraphRunner:
             "query": query,
             "plan": [],
             "citations": [],
+            "retrieval": {"mode": "graph", "status": "not_executed", "reason": "not_started"},
             "tool_results": [],
             "retry": 0,
         }

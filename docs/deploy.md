@@ -20,6 +20,11 @@ uv run python scripts/init_db.py
 `users / auth_sessions / auth_tokens`，为会话和文档补充归属。应用启动只检查连接，不自动改表。
 升级前备份；历史数据归属禁用的 `archive@agentops.invalid`，不会向新注册账号开放。
 
+本次升级须先执行迁移到 head，再发布后端和前端：`0003_run_result` 保存历史输出，
+`0004_tickets` 建立独立工单表并回填成功的历史建单结果，`0005_retrieval_diagnostics`
+增加检索诊断。回填保留旧编号，同用户同编号且内容一致的结果合并；无效或冲突记录跳过，
+迁移输出 imported/existing/invalid/conflicts 计数。只读取工具快照，不从答案文本生成工单。
+
 ## 2. Railway：部署 FastAPI 容器
 
 1. 连接 GitHub 仓库，选择根目录；Railway 会读取 `railway.json`（Dockerfile：`apps/api/Dockerfile`）；
@@ -68,7 +73,7 @@ python scripts/init_db.py
 | `CORS_ORIGINS` | 直接跨源调用时允许的来源；通过同源 Next.js 代理无需 CORS | 否 |
 | `REDIS_URL` | Upstash 等；缺省用进程内缓存 | 否 |
 | `API_TOKEN` | Railway 与 Vercel 相同的服务端代理凭据，仅通过 `X-API-Token` 验证；不代表用户身份 | 生产必填 |
-| `AGENT_MODE` | `echo`（离线跑通）/ `graph`（LangGraph 编排） | 否，默认 echo |
+| `AGENT_MODE` | 真实工单与引用设为 `graph`；`echo` 仅演示事件流 | 真实链路须显式配置，代码默认 echo |
 | `LANGFUSE_*` | 可观测；缺省不启用 | 否 |
 
 ## 5. 上线后冒烟顺序
@@ -76,8 +81,8 @@ python scripts/init_db.py
 1. `GET /healthz` → `db.connected = true`；在独立 staging 数据库验证迁移与旧数据归档。
 2. 浏览器注册两个账号，确认收到真实邮件；验证前登录 403，点击确认后可登录；重复/过期链接拒绝。
 3. 检查登录响应不含个人令牌或代理凭据，Cookie 为 `HttpOnly; Secure; SameSite=Lax`；伪造来源或缺少 `X-AgentOps-CSRF: 1` 的写请求返回 403。
-4. 登录后创建会话、通过 `POST /ingest` 上传私有文档，提交任务并观察 SSE；另一账号访问会话、运行、审批、追踪返回空列表或 404，检索不能命中其他账号文档。
-5. `AGENT_MODE=graph` 触发写工具；未确认/拒绝不执行，确认后继续；其他用户不能恢复该任务。
+4. 登录后创建会话，通过工作台入库表单上传私有文档，在 `graph` 模式提问；答案引用定位原文，刷新保留引用与检索诊断。另一账号不能命中或预览该文档，访问会话、运行、审批、追踪返回空列表或 404。无 Embedding 时单独验证中文关键词召回。
+5. `AGENT_MODE=graph` 触发建单；未确认/拒绝不落库，确认后工单总览出现一条记录。验证编辑、刷新、归档及重复恢复不重复建单；另一账号不能查看或修改该工单，也不能恢复该任务。
 6. 退出、密码重置或禁用账号后旧会话返回 401，已连接 SSE 最迟约 15 秒重新检查身份并关闭；使用新密码重新登录。
 7. 普通账号评测接口 403，管理员可访问；核对限流与任务额度 429，不将无模型离线结果作为真实联调结果。
 
@@ -101,6 +106,15 @@ uv run python -m evals.runner --limit 40 --user-id <verified-user-uuid>
 本地后端回归测试使用 SQLite 和模拟邮件，不能替代 Postgres 行锁、迁移、pgvector 与真实邮件验证。
 前端在 `apps/web` 执行 `pnpm exec tsc --noEmit`、`pnpm build`、`node tests/auth-smoke.mjs`；
 最后一项启动生产 Next.js 与本地模拟后端，验证 Cookie、CSRF、代理身份与页面保护，不发送真实邮件，也不等同浏览器交互测试。
+
+真实数据库与模型冒烟可执行 `uv run python -m scripts.smoke_ticket_rag`。
+脚本使用 `.env` 的 Postgres、Embedding 与 LLM，在随机隔离 schema 中迁移到 head，
+验证“入库 → 中文检索 → 图回答引用 → 原文读取”、刷新恢复、跨账号隔离与并发建单幂等，
+并使用离线模型配合真实 Postgres 检查点验证建单审批、拒绝、重启恢复及历史回填冲突，
+结束后删除该测试 schema。需要数据库已有 pgvector 扩展以及创建 schema 的权限；不发送邮件，
+不替代生产浏览器交互、真实邮件和部署验收。
+Neon pooled 连接不支持隔离所需的 startup `search_path`，脚本仅在冒烟时使用同一端点的
+direct host（去除 `-pooler`）；应用部署继续使用 pooled 连接。
 
 ## 6. 本地一键启动（备选）
 

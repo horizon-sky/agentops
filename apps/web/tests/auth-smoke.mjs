@@ -40,6 +40,14 @@ const backend = createServer(async (req, res) => {
     res.writeHead(403).end(JSON.stringify({ detail: "admin required" }));
   } else if (req.url === "/sessions") {
     res.end(JSON.stringify([]));
+  } else if (req.url === "/tickets?page=2") {
+    res.end(JSON.stringify({ items: [], total: 0, page: 2, page_size: 20 }));
+  } else if (req.url === "/tickets/mock-ticket" && ["PATCH", "DELETE"].includes(req.method)) {
+    res.end(JSON.stringify({ id: "mock-ticket" }));
+  } else if (req.url === "/documents/mock-document/chunks/mock-chunk") {
+    res.end(JSON.stringify({ content: "Original source" }));
+  } else if (req.url === "/ingest" && req.method === "POST") {
+    res.writeHead(201).end(JSON.stringify({ document_id: "mock-document", chunks: 1, embedded: 0 }));
   } else {
     res.writeHead(404).end(JSON.stringify({ detail: "not found" }));
   }
@@ -82,7 +90,7 @@ try {
     if (child.exitCode !== null || Date.now() > deadline) throw new Error(`Next.js startup failed: ${output}`);
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  for (const path of ["/", "/traces", "/evals"]) {
+  for (const path of ["/", "/tickets", "/traces", "/evals"]) {
     const response = await fetch(`${origin}${path}`, { redirect: "manual" });
     assert.equal(response.status, 307);
     assert.equal(response.headers.get("location"), "/login");
@@ -122,6 +130,31 @@ try {
   assert.equal(sessions.status, 200);
   assert.equal(calls.at(-1).headers.authorization, `Bearer ${token}`);
   assert.equal(calls.at(-1).headers["x-api-token"], gateway);
+  assert.equal((await fetch(`${origin}/tickets`, { headers: { Cookie: cookie } })).status, 200);
+  const tickets = await fetch(`${origin}/api/tickets?page=2`, { headers: { Cookie: cookie } });
+  assert.equal(tickets.status, 200);
+  assert.equal((await tickets.json()).page, 2);
+  const preview = await fetch(`${origin}/api/documents/mock-document/chunks/mock-chunk`, {
+    headers: { Cookie: cookie, Authorization: "Bearer attacker" },
+  });
+  assert.equal((await preview.json()).content, "Original source");
+  assert.equal(calls.at(-1).headers.authorization, `Bearer ${token}`);
+  for (const method of ["PATCH", "DELETE"]) {
+    const rejectedCount = calls.length;
+    assert.equal((await fetch(`${origin}/api/tickets/mock-ticket`, {
+      method, headers: { Cookie: cookie, Origin: origin },
+    })).status, 403);
+    assert.equal(calls.length, rejectedCount);
+    assert.equal((await fetch(`${origin}/api/tickets/mock-ticket`, {
+      method, headers: { Cookie: cookie, Origin: origin, "X-AgentOps-CSRF": "1", "Content-Type": "application/json" },
+      ...(method === "PATCH" ? { body: JSON.stringify({ title: "Edited" }) } : {}),
+    })).status, 200);
+    assert.equal(calls.at(-1).headers.authorization, `Bearer ${token}`);
+  }
+  assert.equal((await fetch(`${origin}/api/ingest`, {
+    method: "POST", headers: { Cookie: cookie, Origin: origin, "X-AgentOps-CSRF": "1", "Content-Type": "application/json" },
+    body: JSON.stringify({ title: "Manual", source: "", content: "Original source" }),
+  })).status, 201);
   assert.equal((await fetch(`${origin}/api/eval/report`, { headers: { Cookie: cookie } })).status, 403);
   unavailable = true;
   assert.equal((await fetch(`${origin}/api/auth/session`, { headers: { Cookie: cookie } })).status, 503);
@@ -138,7 +171,7 @@ try {
   assert.equal(expired.status, 401);
   assert.ok(expired.headers.getSetCookie().some((value) => value.startsWith("agentops_session=;")));
   assert.equal((await post("logout", {}, cookie)).status, 200, "Expired logout must still clear cookies");
-  console.log("PASS: protected pages, email endpoints, CSRF, body limit, private cookies, identity headers, expiry and logout");
+  console.log("PASS: protected pages, email endpoints, CSRF, private cookies, ticket pagination/edit/archive, ingestion, source preview, identity and logout");
 } finally {
   child.kill();
   if (child.exitCode === null && child.signalCode === null) {

@@ -28,7 +28,7 @@ def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
     intent = state.get("intent", "general")
     names = _INTENT_TOOLS.get(intent, _INTENT_TOOLS["general"])
     query = state.get("query", "")
-    severity = re.search(r"\bP[0-3]\b", query, re.IGNORECASE)
+    severity = re.search(r"(?<![A-Za-z0-9])P[0-3](?![A-Za-z0-9])", query, re.IGNORECASE)
     return [
         {
             "name": name,

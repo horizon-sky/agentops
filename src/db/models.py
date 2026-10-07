@@ -100,6 +100,7 @@ class Run(Base):
     error_stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
     answer: Mapped[str] = mapped_column(Text, default="")
     citations: Mapped[list] = mapped_column(JSONB, default=list)
+    retrieval: Mapped[dict] = mapped_column(JSONB, default=dict)
     tool_results: Mapped[list] = mapped_column(JSONB, default=list)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

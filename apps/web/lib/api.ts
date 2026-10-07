@@ -8,6 +8,7 @@ import type {
   RunSnapshot,
   Ticket,
   TicketPage,
+  ChunkPreview,
 } from "./types";
 import { loginRequired } from "./auth";
 
@@ -93,6 +94,10 @@ export function ingestDocument(payload: {
   content: string;
 }): Promise<{ document_id: string; chunks: number; embedded: number }> {
   return request("/ingest", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function fetchChunk(documentId: string, citationId: string): Promise<ChunkPreview> {
+  return request(`/documents/${encodeURIComponent(documentId)}/chunks/${encodeURIComponent(citationId)}`);
 }
 
 /** 用 fetch + ReadableStream 消费 SSE，支持 AbortController 随时中断。 */

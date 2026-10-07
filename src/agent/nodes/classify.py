@@ -84,7 +84,15 @@ async def classify(state: AgentState, config: Any | None = None) -> dict[str, An
                 type="done",
                 run_id=state.get("run_id", ""),
                 stage="generate",
-                payload={"answer": CLARIFICATION_MESSAGE, "citations": []},
+                payload={
+                    "answer": CLARIFICATION_MESSAGE,
+                    "citations": [],
+                    "retrieval": {
+                        "mode": "graph",
+                        "status": "not_executed",
+                        "reason": "clarification",
+                    },
+                },
                 ms=timer.ms,
             )
         )

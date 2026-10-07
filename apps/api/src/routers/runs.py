@@ -34,7 +34,7 @@ _tasks: dict[str, asyncio.Task[None]] = {}
 
 
 async def _persist_run_result(run_id: str, settings: Settings, event: AgentEvent) -> None:
-    if event.type != "done" or not event.payload:
+    if event.type not in {"retrieve", "done"} or not event.payload:
         return
     factory = get_session_factory(settings)
     if factory is None:
@@ -45,9 +45,14 @@ async def _persist_run_result(run_id: str, settings: Settings, event: AgentEvent
             run = await db.scalar(select(Run).where(Run.id == uuid.UUID(run_id)))
             if run is None:
                 return
-            run.answer = str(payload.get("answer") or "")
-            run.citations = payload.get("citations") or []
-            run.tool_results = payload.get("tools") or []
+            if "answer" in payload:
+                run.answer = str(payload.get("answer") or "")
+            if "citations" in payload:
+                run.citations = payload.get("citations") or []
+            if "retrieval" in payload:
+                run.retrieval = payload.get("retrieval") or {}
+            if "tools" in payload:
+                run.tool_results = payload.get("tools") or []
             await db.commit()
     except Exception:
         # 结果快照失败不应中断 SSE；运行状态仍由 _execute 收敛。

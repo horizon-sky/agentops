@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from src.config import Settings
 from src.tools.registry import ToolRegistry
 
@@ -23,6 +25,21 @@ def test_risk_classification() -> None:
     registry = _registry()
     assert registry.is_high_risk("create_ticket") is True
     assert registry.is_high_risk("search_code") is False
+
+
+@pytest.mark.parametrize(
+    ("query", "severity"),
+    [("创建P0工单", "P0"), ("帮我建一个p1工单", "P1"), ("创建P10工单", "P2")],
+)
+def test_ticket_priority_in_chinese_requests(query, severity) -> None:
+    from src.agent.nodes.tools import _planned_calls
+
+    ticket = next(
+        call
+        for call in _planned_calls({"intent": "ticket", "query": query})
+        if call["name"] == "create_ticket"
+    )
+    assert ticket["args"] == {"title": query, "detail": query, "severity": severity}
 
 
 async def test_read_tool_returns_structured_result() -> None:

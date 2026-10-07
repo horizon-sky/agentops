@@ -19,6 +19,6 @@ def build_context(
         if used + cost > token_budget:
             break
         used += cost
-        lines.append(f"[{hit.chunk_id}] {hit.snippet}")
+        lines.append(f"[{hit.citation_id or hit.chunk_id}] {hit.snippet}")
         citations.append(hit.model_dump())
     return "\n\n".join(lines), citations

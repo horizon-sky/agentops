@@ -82,3 +82,17 @@ async def test_echo_llm_used_by_runner_when_no_key() -> None:
     llm = EchoRunner(settings).llm
     result = await llm.acomplete([HumanMessage(content="hi")])
     assert result.text == "hi"
+
+
+async def test_echo_reports_retrieval_as_not_executed() -> None:
+    events = []
+
+    async def emit(event):
+        events.append(event)
+
+    await EchoRunner(Settings(_env_file=None)).run("echo-diagnosis", "Question", emit)
+    for event in events:
+        if event.type in {"retrieve", "done"}:
+            assert event.payload["retrieval"]["mode"] == "echo"
+            assert event.payload["retrieval"]["status"] == "not_executed"
+            assert event.payload["citations"] == []
