@@ -33,6 +33,8 @@ function initialSteps(): TimelineStep[] {
 
 export function useRun() {
   const [runId, setRunId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [plan, setPlan] = useState<string[]>([]);
   const [steps, setSteps] = useState<TimelineStep[]>(initialSteps);
   const [answer, setAnswer] = useState("");
   const [citations, setCitations] = useState<Citation[]>([]);
@@ -66,13 +68,13 @@ export function useRun() {
 
       switch (event.type) {
         case "plan":
-          patchStep("plan", {
-            status: "done",
-            ms: event.ms ?? 0,
-            detail: Array.isArray(payload.steps)
-              ? (payload.steps as string[]).join(" → ")
-              : `意图 ${String(payload.intent ?? "-")}`,
-          });
+          if (Array.isArray(payload.steps)) {
+            setPlan(payload.steps as string[]);
+            patchStep("plan", { status: "done", ms: event.ms ?? 0, detail: (payload.steps as string[]).join(" → ") });
+            patchStep("retrieve", { status: "running", detail: "正在检索你的资料" });
+          } else if (!payload.review) {
+            patchStep("plan", { status: "running", detail: "正在分析问题并制定计划" });
+          }
           break;
         case "retrieve":
           setRetrieval((payload.retrieval as RetrievalDiagnostic) ?? null);
@@ -84,6 +86,7 @@ export function useRun() {
           if (Array.isArray(payload.citations)) {
             setCitations(payload.citations as unknown as Citation[]);
           }
+          patchStep("tools", { status: "running", detail: "等待工具结果" });
           break;
         case "tool_result":
           if (isToolResult(payload)) {
@@ -106,6 +109,7 @@ export function useRun() {
           break;
         case "token":
           setAnswer((prev) => prev + String(payload.delta ?? ""));
+          setSteps((prev) => prev.map((step) => step.stage === "tools" && step.detail === "等待工具结果" ? { ...step, status: "done", detail: "未调用工具" } : step));
           patchStep("generate", { status: "running", detail: "流式生成中" });
           break;
         case "done":
@@ -137,7 +141,11 @@ export function useRun() {
       controllerRef.current = controller;
       seenEvents.current.clear();
 
+      setRunId(null);
+      setQuery(query);
+      setPlan([]);
       setSteps(initialSteps());
+      patchStep("plan", { status: "running", detail: "正在分析问题" });
       setAnswer("");
       setCitations([]);
       setRetrieval(null);
@@ -148,18 +156,25 @@ export function useRun() {
 
       try {
         const run = await createRun(sessionId, query);
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) {
+          await abortRun(run.id).catch(() => undefined);
+          return;
+        }
         setRunId(run.id);
         window.localStorage.setItem("agentops:last-run-id", run.id);
-        await streamRun(run.id, handleEvent, controller.signal);
+        await streamRun(run.id, (event) => { if (!controller.signal.aborted) handleEvent(event); }, controller.signal);
       } catch (reason) {
         if (!controller.signal.aborted) reportError(reason);
       }
     },
-    [handleEvent, reportError],
+    [handleEvent, patchStep, reportError],
   );
 
   const restore = useCallback((snapshot: RunSnapshot | null) => {
+    controllerRef.current?.abort();
+    seenEvents.current.clear();
+    setQuery(snapshot?.query ?? "");
+    setPlan([]);
     if (!snapshot) {
       setRunId(null);
       setSteps(initialSteps());
@@ -200,7 +215,16 @@ export function useRun() {
     setError(null);
     setStatus(snapshot.status === "failed" ? "error" : snapshot.status === "awaiting_approval" ? "waiting" : snapshot.status === "running" ? "running" : "done");
     window.localStorage.setItem("agentops:last-run-id", snapshot.id);
-  }, []);
+    if (snapshot.status === "running" || snapshot.status === "awaiting_approval") {
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      // Replayed events restore the live reply and approval card after refresh.
+      setAnswer("");
+      setTools([]);
+      void streamRun(snapshot.id, (event) => { if (!controller.signal.aborted) handleEvent(event); }, controller.signal)
+        .catch((reason) => { if (!controller.signal.aborted) reportError(reason); });
+    }
+  }, [handleEvent, reportError]);
 
   const stop = useCallback(async () => {
     controllerRef.current?.abort();
@@ -212,26 +236,37 @@ export function useRun() {
     async (ok: boolean, args?: Record<string, unknown>) => {
       if (!runId) return;
       controllerRef.current?.abort();
-      setHitl(null);
-      setStatus("running");
-      patchStep("tools", { status: "running", detail: ok ? "已确认，继续执行" : "已拒绝" });
+      setError(null);
       const controller = new AbortController();
       controllerRef.current = controller;
+      let resumed = false;
       try {
         await resumeRun(runId, ok, args);
         if (controller.signal.aborted) return;
-        await streamRun(runId, handleEvent, controller.signal);
+        resumed = true;
+        setHitl(null);
+        setStatus("running");
+        patchStep("tools", { status: "running", detail: ok ? "已确认，继续执行" : "已拒绝" });
+        await streamRun(runId, (event) => { if (!controller.signal.aborted) handleEvent(event); }, controller.signal);
       } catch (reason) {
-        if (!controller.signal.aborted) reportError(reason);
+        if (!controller.signal.aborted) {
+          if (!resumed && hitl) {
+            setHitl(hitl);
+            setStatus("waiting");
+            setError(reason instanceof Error ? reason.message : "确认失败，请重试");
+          } else reportError(reason);
+        }
       }
     },
-    [handleEvent, patchStep, reportError, runId],
+    [handleEvent, hitl, patchStep, reportError, runId],
   );
 
   const totalMs = useMemo(() => steps.reduce((sum, step) => sum + step.ms, 0), [steps]);
 
   return {
     runId,
+    query,
+    plan,
     steps,
     answer,
     citations,

@@ -26,9 +26,9 @@ export default function DocumentIngest() {
     } catch (e) { setError(e instanceof Error ? e.message : "入库失败"); }
     finally { setBusy(false); }
   };
-  return <details className="glass p-4">
+  return <details className="glass document-ingest p-4">
     <summary className="cursor-pointer text-sm text-white">入库参考文档</summary>
-    <p className="mt-2 text-xs leading-relaxed text-muted">粘贴排查规范或处理手册。资料仅用于当前账号的知识检索。</p>
+    <p className="mt-2 text-xs leading-relaxed text-muted">粘贴处理规范或参考手册，供当前账号检索。来源链接用于溯源，请同时填写正文。</p>
     <form onSubmit={submit} className="mt-3 space-y-3">
       <label className="block text-xs text-muted">标题<input required maxLength={300} disabled={busy} value={title} onChange={(e) => setTitle(e.target.value)} className={FIELD} /></label>
       <label className="block text-xs text-muted">来源（选填）<input maxLength={500} disabled={busy} value={source} onChange={(e) => setSource(e.target.value)} placeholder="文档链接或来源说明" className={FIELD} /></label>

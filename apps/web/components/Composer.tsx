@@ -1,59 +1,71 @@
 "use client";
 
-import { CornerDownLeft, Square } from "lucide-react";
-import { useState } from "react";
+import { ArrowUp, Square } from "lucide-react";
 
 export default function Composer({
   running,
+  waiting,
+  disabled,
+  value,
+  onChange,
   onSubmit,
   onStop,
 }: {
   running: boolean;
+  waiting: boolean;
+  disabled: boolean;
+  value: string;
+  onChange: (value: string) => void;
   onSubmit: (query: string) => void;
   onStop: () => void;
 }) {
-  const [value, setValue] = useState("");
-
   const submit = () => {
     const query = value.trim();
-    if (!query || running) return;
+    if (!query || running || waiting || disabled) return;
     onSubmit(query);
-    setValue("");
+    onChange("");
   };
 
   return (
-    <div className="glass flex items-center gap-3 p-3">
-      <input
+    <div className="chat-composer">
+      <textarea
+        aria-label="发送给 Agent 的问题"
+        rows={3}
         value={value}
-        onChange={(event) => setValue(event.target.value)}
+        onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
             submit();
           }
         }}
-        placeholder="描述一个研发问题，例如：订单服务昨晚 5xx 报警，帮我定位并建单"
-        className="min-w-0 flex-1 bg-transparent px-2 text-sm text-white outline-none placeholder:text-muted/70"
+        disabled={waiting || disabled}
+        placeholder={waiting ? "请先确认或拒绝上方操作，再发送新问题" : "询问已入库的资料，或描述需要跟进的工单…"}
+        className="chat-input"
       />
-
+      <div className="flex items-center justify-between gap-3 px-3 pb-3">
+        <span className="text-[11px] text-muted">{waiting ? "操作暂停，等待你的确认" : "Enter 发送 · Shift + Enter 换行"}</span>
       {running ? (
         <button
+          type="button"
           onClick={onStop}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-danger/40 px-3 py-2 text-xs text-danger transition hover:bg-danger/10"
+          aria-label="停止生成"
+          title="停止生成"
+          className="chat-send"
         >
-          <Square size={12} />
-          中断
+          <Square size={15} fill="currentColor" />
         </button>
-      ) : null}
-
-      <button
+      ) : <button
+        type="button"
         onClick={submit}
-        disabled={running || value.trim().length === 0}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-brand-gradient px-4 py-2 text-xs font-medium text-ink-900 transition enabled:hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+        aria-label="发送问题"
+        title="发送问题"
+        disabled={waiting || disabled || value.trim().length === 0}
+        className="chat-send"
       >
-        <CornerDownLeft size={13} />
-        执行
-      </button>
+        <ArrowUp size={18} />
+      </button>}
+      </div>
     </div>
   );
 }

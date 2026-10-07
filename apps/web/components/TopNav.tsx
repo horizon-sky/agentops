@@ -16,6 +16,7 @@ const NAV = [
 
 export default function TopNav() {
   const pathname = usePathname();
+  const workbench = pathname === "/";
   const [modelTier, setModelTier] = useState("strong");
   const user = useAuthUser();
   const [logoutError, setLogoutError] = useState("");
@@ -35,8 +36,8 @@ export default function TopNav() {
   };
 
   return (
-    <header className="fixed inset-x-0 top-0 z-30 border-b border-white/10 bg-ink-900/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-[1600px] items-center gap-6 px-6">
+    <header className={(workbench ? "workbench-nav " : "") + "fixed inset-x-0 top-0 z-30 border-b border-white/10 bg-ink-900/80 backdrop-blur-xl"}>
+      <div className="nav-inner mx-auto flex h-16 max-w-[1600px] items-center gap-6 px-6">
         <div className="flex items-center gap-3">
           <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-brand-gradient shadow-glow">
             <Radar size={18} className="text-ink-900" />
@@ -44,7 +45,7 @@ export default function TopNav() {
           </div>
           <div className="leading-tight">
             <div className="text-sm font-semibold tracking-wide text-white">AgentOps</div>
-            <div className="text-[11px] text-muted">研发工单自动化 Agent</div>
+            <div className="nav-subtitle text-[11px] text-muted">{workbench ? "知识库与工单助手" : "研发工单自动化 Agent"}</div>
           </div>
         </div>
 
@@ -68,7 +69,7 @@ export default function TopNav() {
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
-          <span className="pill">
+          {!workbench ? <><span className="pill">
             <Activity size={12} className="text-success" />
             在线
           </span>
@@ -91,6 +92,7 @@ export default function TopNav() {
           >
             <Github size={15} />
           </a>
+          </> : null}
           {user ? <span className="max-w-32 truncate text-xs text-muted" title={user.email}>{user.display_name}</span> : null}
           {logoutError ? <span role="alert" className="text-xs text-danger">{logoutError}</span> : null}
           {user ? (

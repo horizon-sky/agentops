@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { CheckCircle2, Circle, Loader2, XCircle } from "lucide-react";
 import type { TimelineStep } from "@/lib/useRun";
 
@@ -34,12 +33,9 @@ export default function Timeline({
 
       <div className="relative space-y-2">
         <div className="absolute left-[13px] top-3 bottom-3 w-px bg-gradient-to-b from-brand-indigo/60 via-brand-cyan/40 to-transparent" />
-        {steps.map((step, index) => (
-          <motion.div
+        {steps.map((step) => (
+          <div
             key={step.stage}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.05 }}
             className="relative flex items-start gap-3 rounded-xl px-1 py-1.5"
           >
             <div
@@ -52,9 +48,9 @@ export default function Timeline({
                 <span className="text-sm font-medium text-white">{step.label}</span>
                 <span className="font-mono text-[11px] text-muted">{step.ms} ms</span>
               </div>
-              <div className="truncate text-xs text-muted">{step.detail}</div>
+              <div className="mt-1 break-words text-xs leading-5 text-muted">{step.detail}</div>
             </div>
-          </motion.div>
+          </div>
         ))}
       </div>
     </div>

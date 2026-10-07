@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquarePlus, MessagesSquare } from "lucide-react";
+import { MessageSquare, MessageSquarePlus, X } from "lucide-react";
 import type { Session } from "@/lib/types";
 
 export default function SessionList({
@@ -8,50 +8,57 @@ export default function SessionList({
   activeId,
   onSelect,
   onCreate,
+  onClose,
+  open,
+  disabled,
 }: {
   sessions: Session[];
   activeId: string | null;
   onSelect: (id: string) => void;
   onCreate: () => void;
+  onClose: () => void;
+  open: boolean;
+  disabled: boolean;
 }) {
   return (
-    <aside className="glass flex w-64 shrink-0 flex-col p-3">
-      <div className="mb-3 flex items-center gap-2">
-        <MessagesSquare size={14} className="text-brand-cyan" />
-        <span className="subheading">会话</span>
+    <aside id="session-sidebar" aria-label="会话列表" className={`workbench-sessions ${open ? "is-open" : ""}`}>
+      <div className="mb-5 flex items-center justify-between">
+        <span className="text-sm font-medium">会话</span>
+        <button type="button" onClick={onClose} aria-label="关闭会话列表" className="session-close icon-button"><X size={16} /></button>
+      </div>
         <button
+          type="button"
           onClick={onCreate}
-          className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 text-muted transition hover:border-brand-indigo hover:text-white"
+          disabled={disabled}
+          className="new-conversation"
         >
           <MessageSquarePlus size={14} />
+          新建会话
         </button>
-      </div>
-
-      <div className="flex-1 space-y-1 overflow-y-auto">
+      <p className="mb-2 mt-6 px-2 text-[11px] text-muted">最近会话</p>
+      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
         {sessions.length === 0 ? (
-          <p className="px-1 text-xs text-muted">还没有会话，点击右上角新建。</p>
+          <p className="px-2 text-xs leading-6 text-muted">发送第一个问题后，<br />会话会显示在这里。</p>
         ) : (
           sessions.map((session) => {
             const active = session.id === activeId;
             return (
               <button
                 key={session.id}
+                type="button"
                 onClick={() => onSelect(session.id)}
-                className={`w-full rounded-xl border px-3 py-2 text-left text-xs transition ${
-                  active
-                    ? "border-brand-indigo/60 bg-brand-indigo/10 text-white"
-                    : "border-transparent text-muted hover:border-white/10 hover:bg-white/5 hover:text-white"
-                }`}
+                disabled={disabled}
+                aria-current={active ? "true" : undefined}
+                className={`conversation-link ${active ? "is-active" : ""}`}
               >
-                <div className="truncate">{session.title}</div>
-                <div className="mt-0.5 truncate font-mono text-[10px] text-muted/70">
-                  {session.id.slice(0, 8)}
-                </div>
+                <MessageSquare size={14} className="shrink-0" />
+                <span className="truncate">{session.title}</span>
               </button>
             );
           })
         )}
       </div>
+      <div className="mt-4 border-t border-white/10 px-2 pt-4 text-[11px] leading-5 text-muted">资料仅用于当前账号。<br />工单在确认后创建。</div>
     </aside>
   );
 }

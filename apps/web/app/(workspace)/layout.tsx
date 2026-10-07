@@ -9,7 +9,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
   return (
     <AuthGate user={user}>
       <TopNav />
-      <div className="mx-auto max-w-[1600px] px-6 pb-8 pt-[88px]">{children}</div>
+      <div className="workspace-content mx-auto max-w-[1600px] px-6 pb-8 pt-[88px]">{children}</div>
     </AuthGate>
   );
 }
