@@ -95,3 +95,21 @@ export interface AuthUser {
   display_name: string;
   role: "member" | "admin";
 }
+
+export interface Ticket {
+  id: string;
+  ticket_id: string;
+  title: string;
+  detail: string;
+  severity: "P0" | "P1" | "P2" | "P3";
+  status: "created" | "in_progress" | "resolved" | "closed";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TicketPage {
+  items: Ticket[];
+  total: number;
+  page: number;
+  page_size: number;
+}

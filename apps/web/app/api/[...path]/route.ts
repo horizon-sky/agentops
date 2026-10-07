@@ -4,7 +4,7 @@ import { jsonError, limitedBody, mutationAllowed, upstreamHeaders, upstreamUrl }
 
 async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname.replace(/^\/api/, "") || "/";
-  if (!/^\/(sessions|runs|traces|ingest|eval|healthz)(\/|$)/.test(path)) {
+  if (!/^\/(sessions|runs|tickets|traces|ingest|eval|healthz)(\/|$)/.test(path)) {
     return jsonError("接口不存在", 404);
   }
   const method = request.method.toUpperCase();

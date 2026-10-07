@@ -6,6 +6,8 @@ import type {
   ToolResultPayload,
   TraceNode,
   RunSnapshot,
+  Ticket,
+  TicketPage,
 } from "./types";
 import { loginRequired } from "./auth";
 
@@ -34,6 +36,18 @@ export function createSession(title: string): Promise<Session> {
 
 export function listSessions(): Promise<Session[]> {
   return request<Session[]>("/sessions");
+}
+
+export function listTickets(page = 1): Promise<TicketPage> {
+  return request(`/tickets?page=${page}`);
+}
+
+export function updateTicket(id: string, fields: Pick<Ticket, "title" | "detail" | "severity" | "status">): Promise<Ticket> {
+  return request(`/tickets/${id}`, { method: "PATCH", body: JSON.stringify(fields) });
+}
+
+export function archiveTicket(id: string): Promise<{ ok: boolean }> {
+  return request(`/tickets/${id}`, { method: "DELETE" });
 }
 
 export function listSessionRuns(sessionId: string): Promise<RunSnapshot[]> {

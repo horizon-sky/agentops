@@ -9,6 +9,7 @@ import { authRequest, notifyAuthChanged } from "@/lib/auth";
 
 const NAV = [
   { to: "/", label: "工作台" },
+  { to: "/tickets", label: "工单总览" },
   { to: "/traces", label: "Trace 回放" },
   { to: "/evals", label: "评测看板" },
 ];

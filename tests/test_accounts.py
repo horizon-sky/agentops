@@ -579,3 +579,94 @@ async def test_ticket_backfill_merges_skips_conflicts_and_preserves_edits(accoun
         await db.commit()
         await db.refresh(ticket)
         assert ticket.title == "User edit"
+
+
+async def test_ticket_overview_edit_archive_and_user_isolation(account_app):
+    from src.tickets import TicketFields, persist_ticket
+
+    client, factory, mail, _ = account_app
+    alice = await signed_in(client, mail)
+    bob = await signed_in(client, mail, "bob@example.com")
+    alice_id, run_id = await ticket_run(client, factory, alice)
+    bob_id, bob_run = await ticket_run(client, factory, bob)
+    async with factory() as db:
+        for i in range(21):
+            await persist_ticket(
+                db,
+                owner_id=alice_id,
+                run_id=run_id,
+                fields=TicketFields(title=f"Ticket {i}"),
+                idempotency_key=str(i),
+            )
+        other = await persist_ticket(
+            db,
+            owner_id=bob_id,
+            run_id=bob_run,
+            fields=TicketFields(title="Private"),
+            idempotency_key="0",
+        )
+    listing = (await client.get("/tickets", headers=alice)).json()
+    assert listing["total"] == 21
+    assert len(listing["items"]) == 20
+    assert len((await client.get("/tickets?page=2", headers=alice)).json()["items"]) == 1
+    assert (await client.get("/tickets", headers=bob)).json()["total"] == 1
+    assert (await client.get("/tickets?page=0", headers=alice)).status_code == 422
+    ticket = listing["items"][0]
+    fields = {"title": "Edited", "detail": "Detail", "severity": "P0", "status": "in_progress"}
+    assert (
+        await client.patch(f"/tickets/{other.id}", json=fields, headers=alice)
+    ).status_code == 404
+    assert (await client.delete(f"/tickets/{ticket['id']}", headers=bob)).status_code == 404
+    for invalid in (
+        {"severity": "P4"},
+        {"status": "running"},
+        {"title": "  "},
+        {"owner_id": str(bob_id)},
+    ):
+        assert (
+            await client.patch(
+                f"/tickets/{ticket['id']}", json={**fields, **invalid}, headers=alice
+            )
+        ).status_code == 422
+    saved = await client.patch(f"/tickets/{ticket['id']}", json=fields, headers=alice)
+    assert saved.status_code == 200
+    assert saved.json()["status"] == "in_progress"
+    assert saved.json()["ticket_id"] == ticket["ticket_id"]
+    refreshed = (await client.get("/tickets", headers=alice)).json()
+    assert refreshed["items"][0]["title"] == "Edited"
+    assert (await client.delete(f"/tickets/{ticket['id']}", headers=alice)).status_code == 200
+    assert (await client.get("/tickets", headers=alice)).json()["total"] == 20
+    assert (
+        await client.patch(f"/tickets/{ticket['id']}", json=fields, headers=alice)
+    ).status_code == 404
+    async with factory() as db:
+        assert (await db.get(Ticket, uuid.UUID(ticket["id"]))).archived_at is not None
+
+
+async def test_ticket_commit_failure_never_reports_success(account_app, monkeypatch):
+    from sqlalchemy.exc import SQLAlchemyError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from src.agent.context import bind
+    from src.tools.registry import ToolRegistry
+
+    client, factory, mail, settings = account_app
+    headers = await signed_in(client, mail)
+    owner_id, run_id = await ticket_run(client, factory, headers)
+    monkeypatch.setattr("src.db.session.get_session_factory", lambda _settings: factory)
+
+    async def fail_commit(self):
+        raise SQLAlchemyError("test database failure")
+
+    monkeypatch.setattr(AsyncSession, "commit", fail_commit)
+    bind(user_id=str(owner_id), run_id=str(run_id), settings=settings, write_approved=True)
+    try:
+        result = await ToolRegistry(settings).call(
+            "create_ticket", {"title": "Failure", "idempotency_key": "failure"}
+        )
+        assert result.ok is False
+        assert result.output is None
+        async with factory() as db:
+            assert await db.scalar(select(Ticket)) is None
+    finally:
+        bind(user_id="", run_id="", write_approved=False)

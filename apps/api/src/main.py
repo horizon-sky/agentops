@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from apps.api.src.deps import cache_dep
-from apps.api.src.routers import auth, ingest, runs, sessions, traces
+from apps.api.src.routers import auth, ingest, runs, sessions, tickets, traces
 from apps.api.src.routers import eval as eval_router
 from apps.api.src.schemas.api import HealthOut
 from src.agent.graph import close_graphs
@@ -64,6 +64,7 @@ def create_app() -> FastAPI:
     app.include_router(sessions.router)
     app.include_router(runs.router)
     app.include_router(ingest.router)
+    app.include_router(tickets.router)
     app.include_router(traces.router)
     app.include_router(eval_router.router)
 
