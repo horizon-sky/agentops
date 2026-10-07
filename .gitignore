@@ -22,3 +22,4 @@ data/*.pdf
 data/*.json
 !data/metrics.json
 *.log
+interview-prep.md

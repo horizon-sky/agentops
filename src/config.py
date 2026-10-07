@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     web_origin: str = "http://localhost:3000"
     resend_api_key: str = ""
     mail_from: str = ""
-    auth_session_hours: int = 8
+    auth_session_hours: int = 1
     max_active_runs_per_user: int = 2
     max_runs_per_user_per_day: int = 50
     max_ingests_per_user_per_day: int = 20

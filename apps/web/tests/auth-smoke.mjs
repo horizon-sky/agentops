@@ -24,7 +24,7 @@ const backend = createServer(async (req, res) => {
   assert.equal(req.headers["x-api-token"], gateway);
   if (req.url === "/auth/login") {
     active = true;
-    res.end(JSON.stringify({ user, token, expires_in: 28800 }));
+    res.end(JSON.stringify({ user, token, expires_in: 3600 }));
   } else if (["/auth/register", "/auth/resend-verification", "/auth/forgot-password"].includes(req.url)) {
     res.writeHead(202).end(JSON.stringify({ message: "Check email" }));
   } else if (["/auth/verify-email", "/auth/reset-password"].includes(req.url)) {
@@ -108,7 +108,7 @@ try {
   assert.equal(login.headers.get("cache-control"), "no-store");
   const cookies = login.headers.getSetCookie();
   const sessionCookie = cookies.find((value) => value.startsWith("agentops_session="));
-  for (const flag of [/HttpOnly/i, /Secure/i, /SameSite=Lax/i, /Max-Age=28800/i]) {
+  for (const flag of [/HttpOnly/i, /Secure/i, /SameSite=Lax/i, /Max-Age=3600/i]) {
     assert.match(sessionCookie, flag);
   }
   const cookie = sessionCookie.split(";")[0];

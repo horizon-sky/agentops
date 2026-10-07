@@ -14,7 +14,7 @@ export async function authRequest(action: string, payload: Record<string, string
 export function notifyAuthChanged(): void {
   try {
     localStorage.setItem("agentops_auth_changed", String(Date.now()));
-  } catch { /* Storage may be disabled; session checks still run on focus and a timer. */ }
+  } catch { /* Storage may be disabled; the current tab still navigates after auth changes. */ }
 }
 
 export function loginRequired(): void {

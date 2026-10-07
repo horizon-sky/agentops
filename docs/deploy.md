@@ -58,7 +58,7 @@ python scripts/init_db.py
 | `APP_ENV` | Railway 设为 `production`，缺数据库或代理凭据时拒绝启动 | 是 |
 | `WEB_ORIGIN` | 邮件链接对应的前端来源，如 `https://agentops.example.com` | 是 |
 | `RESEND_API_KEY` / `MAIL_FROM` | Resend 凭据与已验证域名发件地址，如 `AgentOps <account@example.com>` | 是 |
-| `AUTH_SESSION_HOURS` | 登录有效期，默认 8 小时，上限 24 小时 | 否 |
+| `AUTH_SESSION_HOURS` | 登录有效期，默认 1 小时，上限 24 小时 | 否 |
 | `MAX_ACTIVE_RUNS_PER_USER` / `MAX_RUNS_PER_USER_PER_DAY` | 默认同时运行/待审批 2 个、UTC 每天 50 次 | 否 |
 | `MAX_INGESTS_PER_USER_PER_DAY` | 默认 24 小时内上传 20 次（进程内限流） | 否 |
 | `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` | OpenAI 兼容模型（DeepSeek / Qwen / OpenAI） | 否（缺省走离线兜底） |

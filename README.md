@@ -84,7 +84,7 @@ uv run python -m evals.runner --limit 40 --user-id <verified-user-uuid>
 
 打开 `/register` 自行注册，收到邮件后点击链接并确认验证，再到 `/login` 登录。
 Resend 需要配置已验证的发件域名；邮件未配置或发送失败返回 503，不会模拟成功。
-密码至少 12 位，验证/重置链接有效期 30 分钟；登录默认 8 小时，退出或重置密码后会话撤销。
+密码至少 12 位，验证/重置链接有效期 30 分钟；登录默认 1 小时，退出或重置密码后会话撤销。
 管理员授权、历史数据归属与上线验收见 [部署说明](docs/deploy.md)。
 
 ## 接口
@@ -99,6 +99,7 @@ POST   /auth/logout               撤销当前登录会话
 POST   /auth/forgot-password      申请密码重置邮件
 POST   /auth/reset-password       更新密码并撤销所有登录会话
 POST   /sessions                 创建会话
+GET    /sessions/{id}/runs       查询会话运行快照（刷新后恢复输出）
 POST   /runs                     启动一次 Agent 执行
 GET    /runs/{id}/stream         SSE 事件流（plan/retrieve/tool_result/hitl_request/token/done/error/ping）
 POST   /runs/{id}/resume         HITL 人工确认后继续执行
