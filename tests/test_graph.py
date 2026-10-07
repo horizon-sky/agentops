@@ -160,7 +160,9 @@ async def test_only_checkpoint_owner_can_approve_write_tools(monkeypatch) -> Non
         await runner.resume("owned-approval", {"ok": True}, collector, user_id="bob")
     assert calls == []
     await runner.resume("owned-approval", {"ok": True}, collector, user_id="alice")
-    assert calls == [("create_ticket", {"title": "Private"})]
+    assert calls == [("create_ticket", {
+        "title": "Private", "idempotency_key": "owned-approval:write:0",
+    })]
     assert not await runner.awaiting_approval("owned-approval")
     assert collector.types[-1] == "done"
 

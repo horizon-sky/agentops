@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from langgraph.types import interrupt
 
+from src.agent.context import bind
 from src.agent.context import get as ctx_get
 from src.agent.emit import event_of, get_emit
 from src.agent.state import AgentState
@@ -26,7 +28,22 @@ def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
     intent = state.get("intent", "general")
     names = _INTENT_TOOLS.get(intent, _INTENT_TOOLS["general"])
     query = state.get("query", "")
-    return [{"name": name, "args": {"query": query}} for name in names]
+    severity = re.search(r"\bP[0-3]\b", query, re.IGNORECASE)
+    return [
+        {
+            "name": name,
+            "args": (
+                {
+                    "title": query[:300],
+                    "detail": query,
+                    "severity": severity.group().upper() if severity else "P2",
+                }
+                if name == "create_ticket"
+                else {"query": query}
+            ),
+        }
+        for name in names
+    ]
 
 
 async def tools(state: AgentState, config: Any | None = None) -> dict[str, Any]:
@@ -55,7 +72,7 @@ async def tools(state: AgentState, config: Any | None = None) -> dict[str, Any]:
 
     # 写类工具：先发审批事件，再挂起；用户确认后本节点从检查点重新执行
     approved_calls: list[dict[str, Any]] = []
-    for pending in calls:
+    for index, pending in enumerate(calls):
         if not registry.is_high_risk(pending["name"]):
             approved_calls.append(pending)
             continue
@@ -85,11 +102,16 @@ async def tools(state: AgentState, config: Any | None = None) -> dict[str, Any]:
             results.append(denied)
             await emit(event_of(type="tool_result", run_id=run_id, stage="tools", payload=denied))
         else:
-            approved_calls.append(
-                {**pending, "args": approved.get("args") or pending.get("args", {})}
-            )
+            args = dict(approved.get("args") or pending.get("args", {}))
+            if pending["name"] == "create_ticket":
+                # Internal key cannot be changed in the approval form.
+                args["idempotency_key"] = (
+                    pending.get("args", {}).get("idempotency_key") or f"{run_id}:write:{index}"
+                )
+            approved_calls.append({**pending, "args": args})
 
     async def run_one(call: dict[str, Any]) -> dict[str, Any]:
+        bind(write_approved=registry.is_high_risk(call["name"]))
         result = await registry.call(call["name"], call.get("args", {}))
         payload = result.model_dump()
         await emit(

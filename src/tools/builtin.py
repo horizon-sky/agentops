@@ -2,17 +2,20 @@
 
 数据说明：
 - search_code 对本仓库 src/ 做真实文本检索；
-- query_metrics / create_ticket 使用 data/ 下的样例数据，属演示数据源，
-  README 与简历中均如实标注，不冒充真实生产系统。
+- query_metrics 使用 data/ 下的样例数据，属演示数据源。
+- create_ticket 在用户确认后写入数据库；数据库不可用时返回失败。
 """
 
 from __future__ import annotations
 
 import json
 import re
+import uuid
 from pathlib import Path
 
 from pydantic import BaseModel, Field
+
+from src.tickets import TicketFields
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "data"
@@ -28,11 +31,8 @@ class QueryMetricsArgs(BaseModel):
     window: str = Field(default="1h", description="时间窗口，如 15m / 1h / 24h")
 
 
-class CreateTicketArgs(BaseModel):
-    title: str = Field(description="工单标题")
-    detail: str = Field(default="", description="工单描述")
-    severity: str = Field(default="P2", description="P0-P3")
-    idempotency_key: str | None = Field(default=None, description="幂等键，重复提交只建一次")
+class CreateTicketArgs(TicketFields):
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class DraftReportArgs(BaseModel):
@@ -76,17 +76,38 @@ def query_metrics(args: dict[str, object]) -> dict[str, object]:
     }
 
 
-def create_ticket(args: dict[str, object]) -> dict[str, object]:
-    title = str(args.get("title", ""))
-    key = str(args.get("idempotency_key") or title)
-    digest = f"{abs(hash(key)) % 90000 + 10000}"
-    return {
-        "ticket_id": f"OPS-{digest}",
-        "title": title,
-        "severity": str(args.get("severity", "P2")),
-        "status": "created",
-        "idempotency_key": key,
-    }
+async def create_ticket(args: dict[str, object]) -> dict[str, object]:
+    from src.agent.context import get
+    from src.config import get_settings
+    from src.db.session import get_session_factory
+    from src.tickets import persist_ticket
+
+    payload = CreateTicketArgs.model_validate(args)
+    if not get("write_approved", False) or not get("user_id") or not get("run_id"):
+        raise PermissionError("Ticket creation requires authenticated HITL approval")
+    key = payload.idempotency_key
+    if not key:
+        raise ValueError("Ticket creation requires an idempotency key")
+    factory = get_session_factory(get("settings") or get_settings())
+    if factory is None:
+        raise RuntimeError("Ticket creation requires a database")
+    async with factory() as db:
+        ticket = await persist_ticket(
+            db,
+            owner_id=uuid.UUID(get("user_id")),
+            run_id=uuid.UUID(get("run_id")),
+            fields=TicketFields(**payload.model_dump(exclude={"idempotency_key"})),
+            idempotency_key=key,
+        )
+        return {
+            "id": str(ticket.id),
+            "ticket_id": ticket.ticket_id,
+            "title": ticket.title,
+            "detail": ticket.detail,
+            "severity": ticket.severity,
+            "status": ticket.status,
+            "idempotency_key": key,
+        }
 
 
 def draft_report(args: dict[str, object]) -> dict[str, object]:

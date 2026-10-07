@@ -14,14 +14,14 @@ mcp = FastMCP("ticket")
 
 
 @mcp.tool()
-def ticket(
+async def ticket(
     title: str,
     detail: str = "",
     severity: str = "P2",
     idempotency_key: str | None = None,
 ) -> dict[str, object]:
     """创建运维工单；idempotency_key 相同则视为同一次提交。"""
-    return create_ticket(
+    return await create_ticket(
         {
             "title": title,
             "detail": detail,

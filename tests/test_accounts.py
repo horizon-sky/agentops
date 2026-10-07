@@ -20,7 +20,7 @@ from apps.api.src.schemas.events import make_event
 from apps.api.src.sse import bus
 from src.auth import _attempts, token_digest
 from src.config import Settings
-from src.db.models import AuthSession, AuthToken, Base, Document, Run, Session, Trace, User
+from src.db.models import AuthSession, AuthToken, Base, Document, Run, Session, Ticket, Trace, User
 
 PASSWORD = "account-test-password"
 
@@ -48,6 +48,7 @@ async def account_app(tmp_path, monkeypatch):
                         Run,
                         Document,
                         Trace,
+                        Ticket,
                     )
                 ],
             )
@@ -442,3 +443,139 @@ async def test_accounts_fail_closed_without_database(account_app):
     assert (
         await client.get("/sessions", headers={"Authorization": "Bearer pretend-token"})
     ).status_code == 503
+
+
+async def ticket_run(client, factory, headers, query="订单服务 P1 故障，需要建单"):
+    session_id = (await client.post("/sessions", json={"title": "Ticket"}, headers=headers)).json()[
+        "id"
+    ]
+    user_id = (await client.get("/auth/session", headers=headers)).json()["user"]["id"]
+    run_id = uuid.uuid4()
+    async with factory() as db:
+        db.add(Run(id=run_id, session_id=uuid.UUID(session_id), query=query, status="running"))
+        await db.commit()
+    return uuid.UUID(user_id), run_id
+
+
+async def test_ticket_approval_persists_once_and_archived_retry_fails(account_app, monkeypatch):
+    from datetime import UTC, datetime
+
+    from src.agent.runner import GraphRunner
+    from src.tools.registry import ToolRegistry
+
+    client, factory, mail, settings = account_app
+    headers = await signed_in(client, mail)
+    user_id, run_id = await ticket_run(client, factory, headers)
+    monkeypatch.setattr("src.db.session.get_session_factory", lambda _settings: factory)
+    monkeypatch.setattr("src.tools.registry._registry", ToolRegistry(settings))
+    events = []
+
+    async def emit(event):
+        events.append(event)
+
+    runner = GraphRunner(settings)
+    await runner.run(str(run_id), "创建 P1 工单", emit, user_id=str(user_id))
+    async with factory() as db:
+        assert (await db.execute(select(Ticket))).scalars().all() == []
+    approval = next(event.payload for event in events if event.type == "hitl_request")
+    assert approval["args"]["title"] == "创建 P1 工单"
+    assert approval["args"]["severity"] == "P1"
+    await runner.resume(
+        str(run_id),
+        {
+            "ok": True,
+            "args": {
+                "title": "Edited title",
+                "severity": "P0",
+                "detail": "Private detail",
+            },
+        },
+        emit,
+        user_id=str(user_id),
+    )
+    result = next(
+        event.payload
+        for event in events
+        if event.type == "tool_result" and event.payload["name"] == "create_ticket"
+    )
+    assert result["ok"] is True
+    from src.agent.context import bind
+    from src.tools.builtin import create_ticket
+
+    bind(user_id=str(user_id), run_id=str(run_id), settings=settings, write_approved=True)
+    try:
+        repeated = await create_ticket(result["args"])
+        assert repeated["ticket_id"] == result["output"]["ticket_id"]
+        async with factory() as db:
+            tickets = (await db.execute(select(Ticket))).scalars().all()
+            assert len(tickets) == 1
+            assert tickets[0].title == "Edited title"
+            assert tickets[0].severity == "P0"
+            assert tickets[0].status == "created"
+            tickets[0].archived_at = datetime.now(UTC)
+            await db.commit()
+        with pytest.raises(ValueError, match="archived"):
+            await create_ticket(result["args"])
+    finally:
+        bind(user_id="", run_id="", write_approved=False)
+
+
+async def test_rejected_ticket_never_persists(account_app, monkeypatch):
+    from src.agent.runner import GraphRunner
+    from src.tools.registry import ToolRegistry
+
+    client, factory, mail, settings = account_app
+    headers = await signed_in(client, mail)
+    user_id, run_id = await ticket_run(client, factory, headers)
+    monkeypatch.setattr("src.db.session.get_session_factory", lambda _settings: factory)
+    monkeypatch.setattr("src.tools.registry._registry", ToolRegistry(settings))
+
+    async def emit(event):
+        pass
+
+    runner = GraphRunner(settings)
+    await runner.run(str(run_id), "创建工单", emit, user_id=str(user_id))
+    await runner.resume(str(run_id), {"ok": False}, emit, user_id=str(user_id))
+    async with factory() as db:
+        assert (await db.execute(select(Ticket))).scalars().all() == []
+
+
+async def test_ticket_backfill_merges_skips_conflicts_and_preserves_edits(account_app):
+    from src.db.ticket_backfill import backfill_tickets
+
+    client, factory, mail, _ = account_app
+    headers = await signed_in(client, mail)
+    _, run_id = await ticket_run(client, factory, headers)
+
+    def result(number, title):
+        return {
+            "name": "create_ticket",
+            "ok": True,
+            "args": {"detail": "original detail"},
+            "output": {"ticket_id": number, "title": title, "severity": "P1"},
+        }
+
+    async with factory() as db:
+        run = await db.get(Run, run_id)
+        run.tool_results = [
+            result("OPS-10001", "Valid"),
+            result("OPS-10001", "Valid"),
+            result("OPS-10002", "First"),
+            result("OPS-10002", "Conflicting"),
+            result("OPS-10003", ""),
+            {"name": "create_ticket", "ok": False, "output": {"ticket_id": "OPS-10004"}},
+        ]
+        await db.commit()
+        conn = await db.connection()
+        report = await conn.run_sync(backfill_tickets)
+        await db.commit()
+        assert report == {"imported": 1, "existing": 0, "invalid": 1, "conflicts": 1}
+        ticket = await db.scalar(select(Ticket))
+        assert ticket.ticket_id == "OPS-10001"
+        ticket.title = "User edit"
+        await db.commit()
+        conn = await db.connection()
+        assert (await conn.run_sync(backfill_tickets))["existing"] == 1
+        await db.commit()
+        await db.refresh(ticket)
+        assert ticket.title == "User edit"

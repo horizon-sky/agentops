@@ -40,13 +40,16 @@ async def test_search_code_actually_greps_repository() -> None:
     assert result.output["count"] >= 1  # type: ignore[index]
 
 
-async def test_write_tool_is_idempotent() -> None:
+async def test_ticket_tool_cannot_fake_success_without_approval() -> None:
+    from src.agent.context import bind
+
+    bind(write_approved=False, user_id="", run_id="")
     registry = _registry()
     args = {"title": "订单服务 5xx 排查", "severity": "P1", "idempotency_key": "k-1"}
     first = await registry.call("create_ticket", dict(args))
-    second = await registry.call("create_ticket", dict(args))
-    assert first.ok and second.ok
-    assert first.output["ticket_id"] == second.output["ticket_id"]  # type: ignore[index]
+    assert first.ok is False
+    assert first.output is None
+    assert "approval" in first.error
 
 
 async def test_unknown_tool_returns_error_result() -> None:
@@ -54,6 +57,25 @@ async def test_unknown_tool_returns_error_result() -> None:
     result = await registry.call("not_exists", {})
     assert result.ok is False
     assert "未注册" in (result.error or "")
+
+
+async def test_ticket_tool_without_database_returns_failure(monkeypatch) -> None:
+    import uuid
+
+    from src.agent.context import bind
+
+    bind(write_approved=True, user_id=str(uuid.uuid4()), run_id=str(uuid.uuid4()),
+         settings=Settings(_env_file=None))
+    monkeypatch.setattr("src.db.session.get_session_factory", lambda _settings: None)
+    try:
+        result = await _registry().call("create_ticket", {
+            "title": "Valid title", "idempotency_key": "operation",
+        })
+        assert result.ok is False
+        assert result.output is None
+        assert "database" in result.error
+    finally:
+        bind(write_approved=False, user_id="", run_id="")
 
 
 async def test_same_idempotency_key_never_shares_outputs_between_users() -> None:
@@ -66,14 +88,15 @@ async def test_same_idempotency_key_never_shares_outputs_between_users() -> None
         calls.append(get("user_id"))
         return {"private_owner": get("user_id")}
 
-    registry.executors["create_ticket"] = execute
+    registry.specs["draft_report"].idempotent = True
+    registry.executors["draft_report"] = execute
     args = {"title": "Same title", "idempotency_key": "same-key"}
     try:
         bind(user_id="alice")
-        first = await registry.call("create_ticket", args)
-        assert (await registry.call("create_ticket", args)).output == first.output
+        first = await registry.call("draft_report", args)
+        assert (await registry.call("draft_report", args)).output == first.output
         bind(user_id="bob")
-        second = await registry.call("create_ticket", args)
+        second = await registry.call("draft_report", args)
         assert first.output == {"private_owner": "alice"}
         assert second.output == {"private_owner": "bob"}
         assert calls == ["alice", "bob"]

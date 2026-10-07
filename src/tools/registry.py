@@ -113,7 +113,8 @@ class ToolRegistry:
             return ToolResult(name=name, args=args, ok=False, error=f"未注册的工具 {name}")
 
         # 幂等：key 相同则复用首次结果，避免重复建单
-        if spec.idempotent:
+        use_cache = spec.idempotent and name != "create_ticket"
+        if use_cache:
             key = (
                 f"tool:{ctx_get('user_id', '')}:{name}:"
                 f"{args.get('idempotency_key') or args.get('title')}"
@@ -156,7 +157,7 @@ class ToolRegistry:
             ms=elapsed,
         )
 
-        if spec.idempotent and tool_result.ok:
+        if use_cache and tool_result.ok:
             await self.cache.set(
                 key,
                 output,

@@ -32,16 +32,23 @@ export default function ApprovalCard({
       </p>
 
       <div className="mt-3 space-y-2">
-        {Object.entries(draft).map(([key, value]) => (
+        {Object.entries(draft).filter(([key]) => key !== "idempotency_key").map(([key, value]) => (
           <label key={key} className="block">
-            <span className="text-[11px] text-muted">{key}</span>
-            <input
+            <span className="text-[11px] text-muted">{tool === "create_ticket" ? ({ title: "标题", detail: "描述", severity: "优先级" } as Record<string, string>)[key] ?? key : key}</span>
+            {tool === "create_ticket" && key === "severity" ? (
+              <select value={String(value)} onChange={(event) => setDraft((prev) => ({ ...prev, severity: event.target.value }))} className="mt-1 w-full rounded-lg border border-white/10 bg-ink-900 px-3 py-2 text-xs text-white">
+                {["P0", "P1", "P2", "P3"].map((priority) => <option key={priority}>{priority}</option>)}
+              </select>
+            ) : tool === "create_ticket" && key === "detail" ? (
+              <textarea value={String(value ?? "")} maxLength={20000} rows={3} onChange={(event) => setDraft((prev) => ({ ...prev, detail: event.target.value }))} className="mt-1 w-full rounded-lg border border-white/10 bg-ink-900/80 px-3 py-2 text-xs text-white focus:border-brand-indigo" />
+            ) : <input
               value={String(value ?? "")}
+              maxLength={tool === "create_ticket" && key === "title" ? 300 : undefined}
               onChange={(event) =>
                 setDraft((prev) => ({ ...prev, [key]: event.target.value }))
               }
               className="mt-1 w-full rounded-lg border border-white/10 bg-ink-900/80 px-3 py-2 text-xs text-white outline-none transition focus:border-brand-indigo"
-            />
+            />}
           </label>
         ))}
       </div>
@@ -49,6 +56,7 @@ export default function ApprovalCard({
       <div className="mt-4 flex gap-2">
         <button
           onClick={() => onResolve(true, draft)}
+          disabled={tool === "create_ticket" && !String(draft.title ?? "").trim()}
           className="inline-flex items-center gap-1.5 rounded-lg bg-brand-gradient px-3 py-2 text-xs font-medium text-ink-900 transition hover:opacity-90"
         >
           <ShieldCheck size={13} />
