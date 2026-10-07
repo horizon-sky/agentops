@@ -29,8 +29,13 @@ export default function TraceReplay() {
   const [cursor, setCursor] = useState(0);
 
   useEffect(() => {
-    setRunId(run.runId ?? "");
+    setRunId(run.runId ?? window.localStorage.getItem("agentops:last-run-id") ?? "");
   }, [run.runId]);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("agentops:last-run-id");
+    if (!runId && saved) setRunId(saved);
+  }, [runId]);
 
   const load = async () => {
     if (!runId) return;
@@ -38,6 +43,12 @@ export default function TraceReplay() {
     setNodes(trace);
     setCursor(trace.length ? 1 : 0);
   };
+
+  useEffect(() => {
+    if (runId) void load();
+    // 仅在恢复最近一次运行时自动加载 Trace。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runId]);
 
   const rows = flatten(nodes);
   const visible = rows.slice(0, cursor);

@@ -5,6 +5,7 @@ import type {
   Session,
   ToolResultPayload,
   TraceNode,
+  RunSnapshot,
 } from "./types";
 import { loginRequired } from "./auth";
 
@@ -33,6 +34,10 @@ export function createSession(title: string): Promise<Session> {
 
 export function listSessions(): Promise<Session[]> {
   return request<Session[]>("/sessions");
+}
+
+export function listSessionRuns(sessionId: string): Promise<RunSnapshot[]> {
+  return request<RunSnapshot[]>(`/sessions/${sessionId}/runs`);
 }
 
 export function createRun(sessionId: string, query: string): Promise<RunRef> {

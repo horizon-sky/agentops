@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { abortRun, createRun, resumeRun, streamRun } from "./api";
 import { isHitl, isToolResult } from "./api";
-import type { AgentEvent, Citation, Stage, ToolResultPayload } from "./types";
+import type { AgentEvent, Citation, RunSnapshot, Stage, ToolResultPayload } from "./types";
 
 export interface TimelineStep {
   stage: Stage;
@@ -61,7 +61,6 @@ export function useRun() {
       seenEvents.current.add(event.id);
       const payload = event.payload ?? {};
       const stage = event.stage ?? "plan";
-      patchStep(stage, { status: "running", detail: "执行中" });
 
       switch (event.type) {
         case "plan":
@@ -146,6 +145,7 @@ export function useRun() {
         const run = await createRun(sessionId, query);
         if (controller.signal.aborted) return;
         setRunId(run.id);
+        window.localStorage.setItem("agentops:last-run-id", run.id);
         await streamRun(run.id, handleEvent, controller.signal);
       } catch (reason) {
         if (!controller.signal.aborted) reportError(reason);
@@ -153,6 +153,44 @@ export function useRun() {
     },
     [handleEvent, reportError],
   );
+
+  const restore = useCallback((snapshot: RunSnapshot | null) => {
+    if (!snapshot) {
+      setRunId(null);
+      setSteps(initialSteps());
+      setAnswer("");
+      setCitations([]);
+      setTools([]);
+      setHitl(null);
+      setError(null);
+      setStatus("idle");
+      window.localStorage.removeItem("agentops:last-run-id");
+      return;
+    }
+    setRunId(snapshot.id);
+    setAnswer(snapshot.answer ?? "");
+    setCitations(snapshot.citations ?? []);
+    setTools(snapshot.tool_results ?? []);
+    setSteps(
+      initialSteps().map((step) => {
+        if (step.stage === "tools" && snapshot.tool_results?.length) {
+          return { ...step, status: "done", detail: "已恢复工具结果" };
+        }
+        if (step.stage === "generate" && snapshot.answer) {
+          return {
+            ...step,
+            status: snapshot.status === "running" ? "running" : "done",
+            detail: snapshot.status === "running" ? "执行中" : "已完成",
+          };
+        }
+        return step;
+      }),
+    );
+    setHitl(null);
+    setError(null);
+    setStatus(snapshot.status === "failed" ? "error" : snapshot.status === "awaiting_approval" ? "waiting" : snapshot.status === "running" ? "running" : "done");
+    window.localStorage.setItem("agentops:last-run-id", snapshot.id);
+  }, []);
 
   const stop = useCallback(async () => {
     controllerRef.current?.abort();
@@ -193,6 +231,7 @@ export function useRun() {
     error,
     totalMs,
     start,
+    restore,
     stop,
     approve,
   };

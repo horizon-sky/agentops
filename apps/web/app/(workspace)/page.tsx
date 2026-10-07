@@ -9,7 +9,7 @@ import CostBar from "@/components/CostBar";
 import SessionList from "@/components/SessionList";
 import Timeline from "@/components/Timeline";
 import ToolCard from "@/components/ToolCard";
-import { createSession, listSessions } from "@/lib/api";
+import { createSession, listSessionRuns, listSessions } from "@/lib/api";
 import type { Session } from "@/lib/types";
 import { useRun } from "@/lib/useRun";
 
@@ -32,15 +32,32 @@ export default function Workbench() {
         if (cancelled) return;
         setSessions(items);
         setActiveId(items[0]?.id ?? null);
+        if (items[0]) {
+          return listSessionRuns(items[0].id).then((runs) => {
+            if (!cancelled) run.restore(runs[0] ?? null);
+          });
+        }
+        return undefined;
       })
       .catch(() => undefined);
     return () => { cancelled = true; };
-  }, []);
+  }, [run.restore]);
+
+  const selectSession = async (sessionId: string) => {
+    setActiveId(sessionId);
+    try {
+      const runs = await listSessionRuns(sessionId);
+      run.restore(runs[0] ?? null);
+    } catch {
+      // 会话列表仍可用，加载历史失败时保留当前页面状态。
+    }
+  };
 
   const newSession = async () => {
     const session = await createSession(`工单排查 ${sessions.length + 1}`);
     setSessions((prev) => [session, ...prev]);
     setActiveId(session.id);
+    run.restore(null);
   };
 
   const answerWithAnchors = useMemo(() => {
@@ -85,7 +102,7 @@ export default function Workbench() {
       <SessionList
         sessions={sessions}
         activeId={activeId}
-        onSelect={setActiveId}
+        onSelect={selectSession}
         onCreate={newSession}
       />
 

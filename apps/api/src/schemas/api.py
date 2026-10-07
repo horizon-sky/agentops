@@ -31,6 +31,11 @@ class RunOut(BaseModel):
     status: str
     model_version: str = ""
     prompt_version: str = ""
+    query: str = ""
+    answer: str = ""
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+    tool_results: list[dict[str, Any]] = Field(default_factory=list)
+    ended_at: datetime | None = None
 
 
 class ResumeIn(BaseModel):

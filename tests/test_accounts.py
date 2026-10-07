@@ -309,6 +309,53 @@ async def test_run_daily_and_concurrency_limits(account_app):
     assert (await client.post("/runs", json=payload, headers=headers)).status_code == 429
 
 
+async def test_session_runs_restore_completed_output(account_app):
+    client, factory, mail, _ = account_app
+    headers = await signed_in(client, mail)
+    session_id = (await client.post("/sessions", json={"title": "历史"}, headers=headers)).json()[
+        "id"
+    ]
+    run_id = uuid.uuid4()
+    async with factory() as db:
+        db.add(
+            Run(
+                id=run_id,
+                session_id=uuid.UUID(session_id),
+                status="completed",
+                query="昨晚报警",
+                answer="已完成定位",
+                citations=[{"chunk_id": "c1"}],
+                tool_results=[{"name": "query_metrics", "ok": True}],
+            )
+        )
+        await db.commit()
+
+    response = await client.get(f"/sessions/{session_id}/runs", headers=headers)
+    assert response.status_code == 200
+    snapshot = response.json()[0]
+    assert snapshot["id"] == str(run_id)
+    assert snapshot["answer"] == "已完成定位"
+    assert snapshot["citations"] == [{"chunk_id": "c1"}]
+
+
+async def test_completed_run_persists_echo_output(account_app):
+    client, factory, mail, _ = account_app
+    headers = await signed_in(client, mail)
+    session_id = (await client.post("/sessions", json={"title": "执行"}, headers=headers)).json()[
+        "id"
+    ]
+    response = await client.post(
+        "/runs", json={"session_id": session_id, "query": "hello"}, headers=headers
+    )
+    assert response.status_code == 201
+    run_id = response.json()["id"]
+    await asyncio.gather(*runs._tasks.values())
+    async with factory() as db:
+        stored = await db.scalar(select(Run).where(Run.id == uuid.UUID(run_id)))
+        assert stored.status == "completed"
+        assert stored.answer == "hello"
+
+
 async def test_document_upload_passes_server_identity_and_enforces_limits(account_app, monkeypatch):
     client, _, mail, settings = account_app
     headers = await signed_in(client, mail)

@@ -94,6 +94,9 @@ class Run(Base):
     model_version: Mapped[str] = mapped_column(String(64), default="")
     prompt_version: Mapped[str] = mapped_column(String(64), default="")
     error_stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    answer: Mapped[str] = mapped_column(Text, default="")
+    citations: Mapped[list] = mapped_column(JSONB, default=list)
+    tool_results: Mapped[list] = mapped_column(JSONB, default=list)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

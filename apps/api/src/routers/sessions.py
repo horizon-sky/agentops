@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.src.deps import Principal, auth_db, current_user
-from apps.api.src.schemas.api import CreateSessionIn, SessionOut
-from src.db.models import Session
+from apps.api.src.deps import Principal, auth_db, current_user, owned_session
+from apps.api.src.schemas.api import CreateSessionIn, RunOut, SessionOut
+from src.db.models import Run, Session
 
 router = APIRouter(prefix="/sessions", tags=["sessions"], dependencies=[Depends(current_user)])
 
@@ -40,4 +42,41 @@ async def list_sessions(
     ).scalars().all()
     return [
         SessionOut(id=row.id, title=row.title, created_at=row.created_at) for row in rows
+    ]
+
+
+@router.get("/{session_id}/runs", response_model=list[RunOut])
+async def list_session_runs(
+    session_id: str,
+    db: AsyncSession = Depends(auth_db),
+    identity: Principal = Depends(current_user),
+) -> list[RunOut]:
+    """返回会话运行快照，供刷新后恢复最后一次 Agent 输出。"""
+    try:
+        session_uuid = uuid.UUID(session_id)
+    except ValueError as exc:
+        raise HTTPException(404, "会话不存在") from exc
+    await owned_session(db, session_uuid, identity.user.id)
+    rows = (
+        await db.execute(
+            select(Run)
+            .where(Run.session_id == session_uuid)
+            .order_by(Run.started_at.desc())
+            .limit(20)
+        )
+    ).scalars().all()
+    return [
+        RunOut(
+            id=row.id,
+            session_id=row.session_id,
+            status=row.status,
+            model_version=row.model_version,
+            prompt_version=row.prompt_version,
+            query=row.query,
+            answer=row.answer,
+            citations=row.citations or [],
+            tool_results=row.tool_results or [],
+            ended_at=row.ended_at,
+        )
+        for row in rows
     ]

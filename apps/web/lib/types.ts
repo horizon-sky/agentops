@@ -64,12 +64,30 @@ export interface Session {
   created_at?: string | null;
 }
 
+export interface RunSnapshot {
+  id: string;
+  session_id: string;
+  status: string;
+  model_version?: string;
+  prompt_version?: string;
+  query?: string;
+  answer?: string;
+  citations?: Citation[];
+  tool_results?: ToolResultPayload[];
+  ended_at?: string | null;
+}
+
 export interface RunRef {
   id: string;
   session_id: string;
   status: string;
   model_version?: string;
   prompt_version?: string;
+  query?: string;
+  answer?: string;
+  citations?: Citation[];
+  tool_results?: ToolResultPayload[];
+  ended_at?: string | null;
 }
 export interface AuthUser {
   id: string;

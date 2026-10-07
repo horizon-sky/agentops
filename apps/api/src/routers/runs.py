@@ -33,9 +33,31 @@ router = APIRouter(prefix="/runs", tags=["runs"], dependencies=[Depends(current_
 _tasks: dict[str, asyncio.Task[None]] = {}
 
 
-def _make_emit(run_id: str):
+async def _persist_run_result(run_id: str, settings: Settings, event: AgentEvent) -> None:
+    if event.type != "done" or not event.payload:
+        return
+    factory = get_session_factory(settings)
+    if factory is None:
+        return
+    payload = event.payload
+    try:
+        async with factory() as db:
+            run = await db.scalar(select(Run).where(Run.id == uuid.UUID(run_id)))
+            if run is None:
+                return
+            run.answer = str(payload.get("answer") or "")
+            run.citations = payload.get("citations") or []
+            run.tool_results = payload.get("tools") or []
+            await db.commit()
+    except Exception:
+        # 结果快照失败不应中断 SSE；运行状态仍由 _execute 收敛。
+        return
+
+
+def _make_emit(run_id: str, settings: Settings):
     async def emit(event: AgentEvent) -> None:
         bus.publish(event)
+        await _persist_run_result(run_id, settings, event)
 
     return emit
 
@@ -78,7 +100,7 @@ async def create_run(
     async def _execute() -> None:
         try:
             await runner.run(
-                str(run_id), payload.query, _make_emit(str(run_id)), user_id=user_id
+                str(run_id), payload.query, _make_emit(str(run_id), settings), user_id=user_id
             )
             pending = (
                 isinstance(runner, GraphRunner) and await runner.awaiting_approval(str(run_id))
@@ -107,6 +129,7 @@ async def create_run(
         status="running",
         model_version=settings.strong_model,
         prompt_version=settings.prompt_version,
+        query=payload.query,
     )
 
 
@@ -190,6 +213,7 @@ async def resume_run(
 
     async def emit(event: AgentEvent) -> None:
         bus.publish(event)
+        await _persist_run_result(str(run_id), settings, event)
 
     payload_dict = {"ok": payload.ok, "args": payload.args or {}}
     if payload.comment:
