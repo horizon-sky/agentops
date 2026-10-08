@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Archive, ChevronLeft, ChevronRight, Pencil, RefreshCw, Save, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { archiveTicket, listTickets, updateTicket } from "@/lib/api";
 import type { Ticket, TicketPage } from "@/lib/types";
@@ -8,8 +9,12 @@ import type { Ticket, TicketPage } from "@/lib/types";
 const STATUS: Record<Ticket["status"], string> = {
   created: "待处理", in_progress: "处理中", resolved: "已解决", closed: "已关闭",
 };
-const FIELD = "mt-1 w-full rounded-lg border border-white/15 bg-ink-900 px-3 py-2 text-sm text-white focus:border-brand-indigo focus:outline-none";
-const BUTTON = "rounded-lg border border-white/15 px-3 py-2 text-sm text-white hover:bg-white/5 disabled:opacity-40";
+const STATUS_STYLE: Record<Ticket["status"], string> = {
+  created: "ticket-status ticket-status-created",
+  in_progress: "ticket-status ticket-status-progress",
+  resolved: "ticket-status ticket-status-resolved",
+  closed: "ticket-status ticket-status-closed",
+};
 
 export default function TicketOverview() {
   const [page, setPage] = useState(1);
@@ -59,43 +64,58 @@ export default function TicketOverview() {
   };
 
   return (
-    <section className="glass p-4 sm:p-6">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div><h1 className="heading">工单总览</h1><p className="mt-2 text-sm text-muted">管理审批后创建的工单与处理进度。</p></div>
-        <button className={BUTTON} onClick={() => void load()} disabled={loading}>刷新</button>
+    <main className="ops-page tickets-page">
+      <header className="ops-page-header">
+        <div>
+          <p className="ops-kicker">工作台 · 跟进队列</p>
+          <h1>工单总览</h1>
+          <p className="ops-page-description">管理已确认创建的事项，持续更新处理进度。</p>
+        </div>
+        <button className="ops-button ops-button-secondary" onClick={() => void load()} disabled={loading} title="刷新工单列表">
+          <RefreshCw size={15} className={loading ? "animate-spin" : ""} />刷新
+        </button>
+      </header>
+      <div className="ticket-summary" aria-label="工单统计">
+        <div><span>全部工单</span><strong>{data?.total ?? "—"}</strong></div>
+        <div><span>当前页</span><strong>{data?.items.length ?? "—"}</strong></div>
+        <div><span>本页待处理</span><strong>{data?.items.filter((item) => item.status === "created" || item.status === "in_progress").length ?? "—"}</strong></div>
+        <div><span>本页已完成</span><strong>{data?.items.filter((item) => item.status === "resolved" || item.status === "closed").length ?? "—"}</strong></div>
       </div>
-      {error ? <div role="alert" className="py-8 text-danger">加载失败：{error} <button className={BUTTON} onClick={() => void load()}>重试</button></div> : loading ? <p role="status" className="py-12 text-center text-muted">正在加载工单…</p> : !data?.items.length ? (
-        <div className="py-12 text-center"><p className="text-white">暂无工单</p><p className="mt-2 text-sm text-muted">在工作台请求创建工单，确认审批后会显示在这里。</p><Link href="/" className="mt-4 inline-block text-brand-cyan">前往工作台</Link></div>
+      <section className="ops-panel ticket-panel">
+      {error ? <div role="alert" className="ops-state ops-state-error"><p>加载工单失败</p><span>{error}</span><button className="ops-button ops-button-secondary" onClick={() => void load()}>重试</button></div> : loading ? <p role="status" className="ops-state">正在加载工单…</p> : !data?.items.length ? (
+        <div className="ops-state"><p>暂无工单</p><span>在工作台确认创建后，工单会出现在这里。</span><Link href="/" className="ops-link">前往工作台</Link></div>
       ) : <>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-white/15 text-muted"><tr>{["工单编号", "标题", "优先级", "业务状态", "创建时间", "操作"].map((name) => <th key={name} scope="col" className="whitespace-nowrap px-3 py-3 font-normal">{name}</th>)}</tr></thead>
-            <tbody>{data.items.map((ticket) => <tr key={ticket.id} className="border-b border-white/5 hover:bg-white/[0.03]">
-              <td className="px-3 py-4"><span className="block max-w-48 truncate font-mono text-xs text-brand-cyan" title={ticket.ticket_id}>{ticket.ticket_id}</span></td>
-              <td className="px-3 py-4"><span className="block min-w-40 max-w-sm break-words">{ticket.title}</span></td>
-              <td className={`px-3 py-4 ${ticket.severity === "P0" ? "text-danger" : ticket.severity === "P1" ? "text-warning" : "text-muted"}`}>{ticket.severity}</td>
-              <td className="whitespace-nowrap px-3 py-4">{STATUS[ticket.status]}</td>
-              <td className="whitespace-nowrap px-3 py-4 text-xs text-muted">{new Date(ticket.created_at).toLocaleString("zh-CN")}</td>
-              <td className="whitespace-nowrap px-3 py-4"><button className="mr-4 text-brand-cyan hover:underline" onClick={() => { setEditing({ ...ticket }); setActionError(""); }}>编辑</button><button className="text-danger hover:underline" onClick={() => { setDeleting(ticket); setActionError(""); }}>删除</button></td>
+          <table className="ticket-table">
+            <thead><tr>{["工单", "标题", "优先级", "状态", "创建时间", "操作"].map((name) => <th key={name} scope="col">{name}</th>)}</tr></thead>
+            <tbody>{data.items.map((ticket) => <tr key={ticket.id}>
+              <td><span className="ticket-id" title={ticket.ticket_id}>{ticket.ticket_id}</span></td>
+              <td><span className="ticket-title">{ticket.title}</span><span className="ticket-detail">{ticket.detail}</span></td>
+              <td><span className={`ticket-severity ticket-severity-${ticket.severity.toLowerCase()}`}>{ticket.severity}</span></td>
+              <td><span className={STATUS_STYLE[ticket.status]}>{STATUS[ticket.status]}</span></td>
+              <td className="ticket-date">{new Date(ticket.created_at).toLocaleString("zh-CN")}</td>
+              <td><div className="ticket-actions"><button title="编辑工单" aria-label={`编辑 ${ticket.ticket_id}`} onClick={() => { setEditing({ ...ticket }); setActionError(""); }}><Pencil size={14} /></button><button className="is-danger" title="归档工单" aria-label={`归档 ${ticket.ticket_id}`} onClick={() => { setDeleting(ticket); setActionError(""); }}><Archive size={14} /></button></div></td>
             </tr>)}</tbody>
           </table>
         </div>
-        <div className="mt-5 flex items-center justify-between gap-3 text-sm text-muted"><span>共 {data.total} 条 · 第 {page} / {Math.max(1, Math.ceil(data.total / 20))} 页</span><div className="flex gap-2"><button className={BUTTON} disabled={page === 1} onClick={() => setPage(page - 1)}>上一页</button><button className={BUTTON} disabled={page * 20 >= data.total} onClick={() => setPage(page + 1)}>下一页</button></div></div>
+        <div className="ticket-pagination"><span>共 {data.total} 条 · 第 {page} / {Math.max(1, Math.ceil(data.total / 20))} 页</span><div><button title="上一页" aria-label="上一页" disabled={page === 1} onClick={() => setPage(page - 1)}><ChevronLeft size={16} /></button><button title="下一页" aria-label="下一页" disabled={page * 20 >= data.total} onClick={() => setPage(page + 1)}><ChevronRight size={16} /></button></div></div>
       </>}
+      </section>
 
       {editing || deleting ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-        <div role="dialog" aria-modal="true" aria-labelledby="ticket-dialog-title" className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/15 bg-ink-900 p-6">
-          <h2 id="ticket-dialog-title" className="subheading">{editing ? "编辑工单" : "删除工单"}</h2>
+        <div role="dialog" aria-modal="true" aria-labelledby="ticket-dialog-title" className="ticket-dialog">
+          <div className="ticket-dialog-heading"><div><p className="ops-kicker">工单操作</p><h2 id="ticket-dialog-title">{editing ? "编辑工单" : "归档工单"}</h2></div><button title="关闭" aria-label="关闭" onClick={() => { setEditing(null); setDeleting(null); }}><X size={17} /></button></div>
           <p className="mt-2 break-all font-mono text-xs text-muted">{(editing ?? deleting)?.ticket_id}</p>
           {actionError ? <p role="alert" className="mt-3 text-sm text-danger">{actionError}</p> : null}
           {editing ? <form onSubmit={save} className="mt-5 space-y-4">
-            <label className="block text-sm text-muted">标题<input autoFocus required maxLength={300} value={editing.title} disabled={busy} onChange={(e) => setEditing({ ...editing, title: e.target.value })} className={FIELD} /></label>
-            <label className="block text-sm text-muted">描述<textarea rows={5} maxLength={20000} value={editing.detail} disabled={busy} onChange={(e) => setEditing({ ...editing, detail: e.target.value })} className={FIELD} /></label>
-            <div className="grid grid-cols-2 gap-4"><label className="text-sm text-muted">优先级<select className={FIELD} value={editing.severity} disabled={busy} onChange={(e) => setEditing({ ...editing, severity: e.target.value as Ticket["severity"] })}>{["P0", "P1", "P2", "P3"].map((s) => <option key={s}>{s}</option>)}</select></label><label className="text-sm text-muted">业务状态<select className={FIELD} value={editing.status} disabled={busy} onChange={(e) => setEditing({ ...editing, status: e.target.value as Ticket["status"] })}>{Object.entries(STATUS).map(([s, name]) => <option key={s} value={s}>{name}</option>)}</select></label></div>
-            <div className="flex justify-end gap-2"><button type="button" disabled={busy} className={BUTTON} onClick={() => setEditing(null)}>取消</button><button disabled={busy || !editing.title.trim()} className={`${BUTTON} bg-brand-indigo/30`}>{busy ? "保存中…" : "保存修改"}</button></div>
-          </form> : <><p className="my-5 text-sm text-muted">确认删除「{deleting?.title}」？删除后将从总览隐藏，历史执行记录仍会保留。</p><div className="flex justify-end gap-2"><button autoFocus disabled={busy} className={BUTTON} onClick={() => setDeleting(null)}>取消</button><button disabled={busy} className={`${BUTTON} text-danger`} onClick={() => void remove()}>{busy ? "删除中…" : "确认删除"}</button></div></>}
+            <label className="ticket-field">标题<input autoFocus required maxLength={300} value={editing.title} disabled={busy} onChange={(e) => setEditing({ ...editing, title: e.target.value })} /></label>
+            <label className="ticket-field">描述<textarea rows={5} maxLength={20000} value={editing.detail} disabled={busy} onChange={(e) => setEditing({ ...editing, detail: e.target.value })} /></label>
+            <div className="grid grid-cols-2 gap-4"><label className="ticket-field">优先级<select value={editing.severity} disabled={busy} onChange={(e) => setEditing({ ...editing, severity: e.target.value as Ticket["severity"] })}>{["P0", "P1", "P2", "P3"].map((s) => <option key={s}>{s}</option>)}</select></label><label className="ticket-field">业务状态<select value={editing.status} disabled={busy} onChange={(e) => setEditing({ ...editing, status: e.target.value as Ticket["status"] })}>{Object.entries(STATUS).map(([s, name]) => <option key={s} value={s}>{name}</option>)}</select></label></div>
+            <div className="ticket-dialog-actions"><button type="button" disabled={busy} className="ops-button ops-button-secondary" onClick={() => setEditing(null)}>取消</button><button disabled={busy || !editing.title.trim()} className="ops-button ops-button-primary"><Save size={14} />{busy ? "保存中…" : "保存修改"}</button></div>
+          </form> : <p className="ticket-archive-copy">确认归档「{deleting?.title}」？归档后将从总览隐藏，历史执行记录仍会保留。</p>}
+          {deleting ? <div className="ticket-dialog-actions"><button autoFocus disabled={busy} className="ops-button ops-button-secondary" onClick={() => setDeleting(null)}>取消</button><button disabled={busy} className="ops-button ops-button-danger" onClick={() => void remove()}><Archive size={14} />{busy ? "归档中…" : "确认归档"}</button></div> : null}
         </div>
       </div> : null}
-    </section>
+    </main>
   );
 }

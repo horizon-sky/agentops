@@ -1,17 +1,10 @@
 "use client";
 
-import { Play, Radio, RotateCcw } from "lucide-react";
+import { AlertCircle, Check, ChevronRight, Play, Radio, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fetchTrace } from "@/lib/api";
 import type { TraceNode } from "@/lib/types";
 import { useRun } from "@/lib/useRun";
-
-const STAGE_STYLE: Record<string, string> = {
-  plan: "border-brand-indigo/50 text-brand-indigo",
-  retrieve: "border-brand-cyan/50 text-brand-cyan",
-  tools: "border-warning/50 text-warning",
-  generate: "border-success/50 text-success",
-};
 
 function flatten(nodes: TraceNode[], depth = 0): Array<{ node: TraceNode; depth: number }> {
   const rows: Array<{ node: TraceNode; depth: number }> = [];
@@ -27,6 +20,8 @@ export default function TraceReplay() {
   const [runId, setRunId] = useState(run.runId ?? "");
   const [nodes, setNodes] = useState<TraceNode[]>([]);
   const [cursor, setCursor] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     setRunId(run.runId ?? window.localStorage.getItem("agentops:last-run-id") ?? "");
@@ -39,9 +34,17 @@ export default function TraceReplay() {
 
   const load = async () => {
     if (!runId) return;
-    const trace = await fetchTrace(runId);
-    setNodes(trace);
-    setCursor(trace.length ? 1 : 0);
+    setLoading(true);
+    setError("");
+    try {
+      const trace = await fetchTrace(runId);
+      setNodes(trace);
+      setCursor(trace.length ? 1 : 0);
+    } catch (reason) {
+      setNodes([]);
+      setCursor(0);
+      setError(reason instanceof Error ? reason.message : "Trace 加载失败");
+    } finally { setLoading(false); }
   };
 
   useEffect(() => {
@@ -54,81 +57,85 @@ export default function TraceReplay() {
   const visible = rows.slice(0, cursor);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[380px_minmax(0,1fr)]">
-      <div className="space-y-4">
-        <div className="glass p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <Radio size={14} className="text-brand-cyan" />
-            <span className="subheading">选择一次执行</span>
-          </div>
+    <main className="ops-page traces-page">
+      <header className="ops-page-header">
+        <div>
+          <p className="ops-kicker">工作台 · 可观测性</p>
+          <h1>Trace 回放</h1>
+          <p className="ops-page-description">按阶段复查一次执行，定位检索、工具或生成环节的异常。</p>
+        </div>
+        <div className="trace-header-meta"><span className={nodes.length ? "trace-live is-ready" : "trace-live"}>{nodes.length ? <Check size={13} /> : <Radio size={13} />}{nodes.length ? "已加载" : "等待 Trace"}</span>{runId ? <code>{runId}</code> : null}</div>
+      </header>
+      <div className="trace-workspace">
+      <aside className="trace-controls">
+        <section className="ops-panel trace-control-panel">
+          <div className="trace-panel-heading"><div><p className="ops-kicker">回放对象</p><h2>选择一次执行</h2></div><Radio size={17} /></div>
           <input
             value={runId}
             onChange={(event) => setRunId(event.target.value)}
-            placeholder="run_id（执行任务后自动填充）"
-            className="w-full rounded-lg border border-white/10 bg-ink-900/80 px-3 py-2 text-xs text-white outline-none transition focus:border-brand-indigo"
+            placeholder="输入 run_id，或先在工作台执行任务"
+            className="trace-input"
           />
-          <div className="mt-3 flex gap-2">
+          <div className="trace-control-actions">
             <button
-              onClick={load}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-gradient px-3 py-2 text-xs font-medium text-ink-900 transition hover:opacity-90"
+              onClick={() => void load()}
+              disabled={!runId || loading}
+              className="ops-button ops-button-primary"
             >
-              <Play size={12} />
-              加载 Trace
+              <Play size={14} />{loading ? "加载中…" : "加载 Trace"}
             </button>
             <button
               onClick={() => setCursor(rows.length)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 px-3 py-2 text-xs text-muted transition hover:text-white"
+              disabled={!rows.length}
+              className="ops-button ops-button-secondary"
             >
-              <RotateCcw size={12} />
-              播放到底
+              <RotateCcw size={14} />播放到底
             </button>
           </div>
-        </div>
-
-        <div className="glass p-4">
-          <div className="mb-2 text-xs text-muted">
-            播放进度 {cursor} / {rows.length}
-          </div>
+          {error ? <p role="alert" className="trace-error"><AlertCircle size={14} />{error}</p> : null}
+        </section>
+        <section className="ops-panel trace-progress-panel">
+          <div className="trace-progress-copy"><span>播放进度</span><strong>{cursor} / {rows.length}</strong></div>
           <input
             type="range"
             min={0}
             max={Math.max(1, rows.length)}
             value={cursor}
             onChange={(event) => setCursor(Number(event.target.value))}
-            className="w-full accent-brand-indigo"
+            className="trace-range"
           />
-        </div>
-      </div>
+        </section>
+        <p className="trace-hint">拖动进度条逐步展开 Span。点击「播放到底」查看完整执行树。</p>
+      </aside>
 
-      <div className="glass p-4">
-        <div className="subheading mb-3">Span 回放</div>
+      <section className="ops-panel trace-panel">
+        <div className="trace-panel-heading"><div><p className="ops-kicker">执行树</p><h2>Span 回放</h2></div><span className="trace-count">{visible.length} / {rows.length} 已展开</span></div>
         {visible.length === 0 ? (
-          <p className="text-xs text-muted">
-            暂无 Trace。执行一次任务后点击「加载 Trace」，可按阶段逐步回放并定位失败点。
-          </p>
+          <div className="ops-state trace-empty"><p>{error ? "无法显示这次执行" : "还没有可回放的 Trace"}</p><span>{error ? "请检查 run_id 后重试。" : "执行一次任务后加载 Trace，按阶段定位失败点。"}</span></div>
         ) : (
-          <div className="space-y-2">
+          <div className="trace-tree">
             {visible.map(({ node, depth }) => (
               <div
                 key={node.id}
                 style={{ marginLeft: depth * 16 }}
-                className={`rounded-xl border p-3 ${
-                  node.status === "error" ? "border-danger/50 bg-danger/10" : "border-white/10"
-                }`}
+                className={`trace-row ${node.status === "error" ? "is-error" : ""}`}
               >
-                <div className="flex items-center gap-2">
-                  <span className={`pill ${STAGE_STYLE[node.stage] ?? ""}`}>{node.stage}</span>
-                  <span className="text-sm text-white">{node.name}</span>
-                  <span className="ml-auto font-mono text-[11px] text-muted">{node.ms} ms</span>
+                <div className="trace-row-main">
+                  <ChevronRight size={14} className="trace-row-chevron" />
+                  <span className={`trace-stage trace-stage-${node.stage}`}>{node.stage}</span>
+                  <span className="trace-node-name">{node.name}</span>
+                  <span className="trace-node-ms">{node.ms} ms</span>
                 </div>
-                <pre className="mt-2 max-h-32 overflow-auto rounded-lg border border-white/10 bg-ink-900/70 p-2 text-[11px] text-white/70">
+                <div className="trace-row-meta"><span>{node.status === "error" ? "执行失败" : "已完成"}</span><span>{node.tokens ? `${node.tokens} tokens` : "无 token 记录"}</span><span>{node.cost ? `$${node.cost.toFixed(4)}` : "成本待接入"}</span></div>
+                <details className="trace-output"><summary>查看输出</summary><pre>
                   {JSON.stringify(node.outputs ?? {}, null, 2)}
-                </pre>
+                </pre></details>
               </div>
             ))}
           </div>
         )}
+      </section>
       </div>
-    </div>
+    </main>
   );
 }
