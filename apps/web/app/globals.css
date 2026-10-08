@@ -154,6 +154,7 @@ body:has(.workbench) {
 .chat-composer { border: 1px solid #4b514b; border-radius: 16px; background: #292c29; }
 .chat-composer:focus-within { border-color: #869c8d; }
 .chat-input { display: block; width: 100%; min-height: 72px; max-height: 180px; resize: vertical; padding: 15px 16px 8px; border: 0; background: transparent; outline: none; font-size: 14px; line-height: 1.7; }
+.workbench .chat-input:focus-visible { outline: none; outline-offset: 0; }
 .chat-input::placeholder { color: #999f97; }
 .chat-send { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: #e4e9e2; color: #252c25; }
 .chat-send:hover { background: #fff; }
