@@ -234,14 +234,24 @@ async def verify(settings: Settings, schema: str) -> None:
                 await ticket_runner.awaiting_approval(str(writes[0].id)), "检查点重启后审批丢失"
             )
             await ticket_runner.resume(
-                str(writes[0].id), {"ok": False}, ticket_emit, user_id=str(users[0].id)
+                str(writes[0].id),
+                {
+                    "ok": False,
+                    "approval_id": (await ticket_runner.approval(str(writes[0].id)))["approval_id"],
+                },
+                ticket_emit, user_id=str(users[0].id)
             )
             async with factory() as db:
                 require(
                     await db.scalar(select(func.count()).select_from(Ticket)) == 0, "拒绝建单仍落库"
                 )
             await ticket_runner.resume(
-                str(writes[1].id), {"ok": True}, ticket_emit, user_id=str(users[0].id)
+                str(writes[1].id),
+                {
+                    "ok": True,
+                    "approval_id": (await ticket_runner.approval(str(writes[1].id)))["approval_id"],
+                },
+                ticket_emit, user_id=str(users[0].id)
             )
             require(
                 any(
@@ -251,9 +261,15 @@ async def verify(settings: Settings, schema: str) -> None:
                 "批准后建单失败",
             )
             await close_graphs()
-            await GraphRunner(ticket_settings).resume(
-                str(writes[1].id), {"ok": True}, ticket_emit, user_id=str(users[0].id)
-            )
+            try:
+                await GraphRunner(ticket_settings).resume(
+                    str(writes[1].id), {"ok": True, "approval_id": f"{writes[1].id}:tool-0"},
+                    ticket_emit, user_id=str(users[0].id)
+                )
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("已完成的审批仍可重复提交")
             async with factory() as db:
                 require(
                     await db.scalar(select(func.count()).select_from(Ticket)) == 1,
@@ -268,7 +284,7 @@ async def verify(settings: Settings, schema: str) -> None:
                         owner_id=users[0].id,
                         run_id=writes[1].id,
                         fields=TicketFields(title="Smoke ticket"),
-                        idempotency_key=f"{writes[1].id}:write:0",
+                        idempotency_key=f"{writes[1].id}:tool-0",
                     )
                     return ticket.id
 

@@ -71,7 +71,7 @@ python scripts/init_db.py
 | `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` / `EMBEDDING_MODEL` / `EMBEDDING_DIM` | 向量化；缺省则检索退化为 BM25 | 否 |
 | `RERANK_ENABLED` / `RERANK_BASE_URL` / `RERANK_API_KEY` / `RERANK_MODEL` | 重排；缺省跳过 | 否 |
 | `CORS_ORIGINS` | 直接跨源调用时允许的来源；通过同源 Next.js 代理无需 CORS | 否 |
-| `REDIS_URL` | Upstash 等；缺省用进程内缓存 | 否 |
+| `REDIS_URL` | 可选 Redis 缓存；缺省用进程内缓存 | 否 |
 | `API_TOKEN` | Railway 与 Vercel 相同的服务端代理凭据，仅通过 `X-API-Token` 验证；不代表用户身份 | 生产必填 |
 | `AGENT_MODE` | 真实工单与引用设为 `graph`；`echo` 仅演示事件流 | 真实链路须显式配置，代码默认 echo |
 | `LANGFUSE_*` | 可观测；缺省不启用 | 否 |
@@ -101,7 +101,7 @@ uv run python -m scripts.manage_users --email user@example.com --enable
 uv run python -m evals.runner --limit 40 --user-id <verified-user-uuid>
 ```
 
-没有默认管理员或共享登录密码。管理员也只能访问自己拥有的业务资源。后端保持一个 worker、一个副本；事件总线、任务和注册/登录/上传限流仍在内存中，重启会清空限流。多副本需要共享任务、事件与限流存储。
+没有默认管理员或共享登录密码。管理员也只能访问自己拥有的业务资源。后端保持一个 worker、一个副本；事件总线、任务和注册/登录/上传限流仍在内存中，重启会清空限流。
 
 本地后端回归测试使用 SQLite 和模拟邮件，不能替代 Postgres 行锁、迁移、pgvector 与真实邮件验证。
 前端在 `apps/web` 执行 `pnpm exec tsc --noEmit`、`pnpm build`、`node tests/auth-smoke.mjs`；
@@ -124,3 +124,31 @@ docker compose -f infra/docker-compose.yml up --build
 
 > 本机未安装 Docker 时，可用 `uv run uvicorn apps.api.src.main:app --port 8000` 直接起后端，
 > 前端 `cd apps/web && pnpm dev`（Next.js 服务端路由代理 `/api` 请求）。
+
+## 7. 结构化计划升级与分阶段启用
+
+首次升级先设置 `ACCEPT_NEW_RUNS=false`，停止接收新任务。等待旧运行完成，或由用户在工作台中止，
+再执行迁移至 head：`0006_execution_plan` 增加结构化计划、审批和开关快照。历史结果继续保留。
+完成后部署前后端，再恢复 `ACCEPT_NEW_RUNS=true`。旧检查点不自动转换为新契约。
+
+默认 `AGENT_MODE=echo`，三个功能开关均关闭。真实图验收显式设 `AGENT_MODE=graph`。
+staging 按以下顺序启用：P1 设置 `AGENT_CONDITIONAL_ROUTING=true`，P2 设置
+`AGENT_TARGETED_RETRY=true`，再单独验证 `AGENT_DYNAMIC_PLAN=true`。
+每阶段验收后进入下一阶段，生产发布另行执行。
+每个新运行保存契约版本、模式和开关快照；回滚开关仅影响新运行。关闭动态计划仍使用结构化确定性计划。
+指标查询继续标注样例数据，没有实测前不声明性能或成功率改善。
+同步工具在线程中执行，超时只能停止等待，不能撤销已开始的副作用；写工具不自动重试。
+只读工具重试计入全程调用预算；累计执行时间耗尽时保留现有证据，并给出证据不足的终态回答。
+
+## 8. 当前运行边界与 P3 回退
+
+当前只保留 P0～P2，P3 共享运行时暂缓。已撤回独立 worker、任务/outbox 表、运行租约、
+持久化事件游标和 Redis 共享限流，恢复进程内后台任务、事件总线及限流，部署保持单进程、单副本。
+Redis 仅保留项目原有的可选缓存用途，不增加新的依赖或服务要求。
+
+结构化计划、待审批请求和执行结果继续保存至运行快照；已配置 Postgres 时保留原有检查点支持。
+这些能力用于历史展示和人工审批恢复，不提供任务进程崩溃后的自动重投递，也不保证 SSE 跨进程续传。
+登录撤销仍最长约 15 秒重新检查；稳定审批标识与建单幂等键继续保留。
+
+本次回退仅撤销未发布的 P3 代码与迁移文件，迁移 head 恢复为 `0006_execution_plan`，
+未对实际数据库执行 downgrade。原有 `alembic/env.py` 工作区修改保留。

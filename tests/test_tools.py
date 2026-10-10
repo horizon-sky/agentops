@@ -81,13 +81,21 @@ async def test_ticket_tool_without_database_returns_failure(monkeypatch) -> None
 
     from src.agent.context import bind
 
-    bind(write_approved=True, user_id=str(uuid.uuid4()), run_id=str(uuid.uuid4()),
-         settings=Settings(_env_file=None))
+    bind(
+        write_approved=True,
+        user_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        settings=Settings(_env_file=None),
+    )
     monkeypatch.setattr("src.db.session.get_session_factory", lambda _settings: None)
     try:
-        result = await _registry().call("create_ticket", {
-            "title": "Valid title", "idempotency_key": "operation",
-        })
+        result = await _registry().call(
+            "create_ticket",
+            {
+                "title": "Valid title",
+                "idempotency_key": "operation",
+            },
+        )
         assert result.ok is False
         assert result.output is None
         assert "database" in result.error
@@ -107,15 +115,88 @@ async def test_same_idempotency_key_never_shares_outputs_between_users() -> None
 
     registry.specs["draft_report"].idempotent = True
     registry.executors["draft_report"] = execute
-    args = {"title": "Same title", "idempotency_key": "same-key"}
+    args = {"title": "Same title"}
     try:
-        bind(user_id="alice")
+        bind(user_id="alice", write_approved=True)
         first = await registry.call("draft_report", args)
         assert (await registry.call("draft_report", args)).output == first.output
-        bind(user_id="bob")
+        bind(user_id="bob", write_approved=True)
         second = await registry.call("draft_report", args)
         assert first.output == {"private_owner": "alice"}
         assert second.output == {"private_owner": "bob"}
         assert calls == ["alice", "bob"]
     finally:
-        bind(user_id="")
+        bind(user_id="", write_approved=False)
+
+
+async def test_invalid_arguments_never_enter_executor() -> None:
+    registry = _registry()
+
+    def execute(args):
+        raise AssertionError("invalid arguments entered executor")
+
+    registry.executors["search_code"] = execute
+    result = await registry.call("search_code", {"query": "x", "top_k": 0})
+    assert not result.ok
+    assert "Invalid arguments" in result.error
+
+
+async def test_sync_executor_does_not_block_event_loop() -> None:
+    import asyncio
+    import time
+
+    registry = _registry()
+    reached = asyncio.Event()
+
+    def execute(args):
+        time.sleep(0.15)
+        return {"completed": reached.is_set()}
+
+    async def tick():
+        await asyncio.sleep(0.01)
+        reached.set()
+
+    registry.executors["search_code"] = execute
+    result, _ = await asyncio.gather(registry.call("search_code", {"query": "x"}), tick())
+    assert result.output["completed"]
+
+
+async def test_write_timeout_never_automatically_retries() -> None:
+    import asyncio
+    import time
+
+    from src.agent.context import bind
+
+    registry = _registry()
+    calls = []
+
+    def execute(args):
+        calls.append(args)
+        time.sleep(0.05)
+        return {"committed": True}
+
+    registry.executors["draft_report"] = execute
+    registry.specs["draft_report"].timeout_s = 0.01
+    registry.specs["draft_report"].retries = 3
+    bind(write_approved=True)
+    try:
+        result = await registry.call("draft_report", {"title": "x"})
+        assert not result.ok
+        await asyncio.sleep(0.08)
+        assert len(calls) == 1
+    finally:
+        bind(write_approved=False)
+
+
+async def test_read_retries_respect_attempt_budget() -> None:
+    registry = _registry()
+    calls = []
+
+    def execute(args):
+        calls.append(args)
+        raise RuntimeError("temporarily unavailable")
+
+    registry.executors["query_metrics"] = execute
+    result = await registry.call("query_metrics", {"service": "orders"}, max_attempts=1)
+    assert not result.ok
+    assert result.attempts == len(calls) == 1

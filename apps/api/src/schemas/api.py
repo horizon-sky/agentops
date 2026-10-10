@@ -36,11 +36,15 @@ class RunOut(BaseModel):
     citations: list[dict[str, Any]] = Field(default_factory=list)
     retrieval: dict[str, Any] = Field(default_factory=dict)
     tool_results: list[dict[str, Any]] = Field(default_factory=list)
+    plan: dict[str, Any] = Field(default_factory=dict)
+    approval: dict[str, Any] = Field(default_factory=dict)
+    contract_version: int = 1
     ended_at: datetime | None = None
 
 
 class ResumeIn(BaseModel):
     ok: bool
+    approval_id: str | None = Field(default=None, max_length=200)
     args: dict[str, Any] | None = None
     comment: str | None = None
 

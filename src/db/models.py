@@ -102,6 +102,10 @@ class Run(Base):
     citations: Mapped[list] = mapped_column(JSONB, default=list)
     retrieval: Mapped[dict] = mapped_column(JSONB, default=dict)
     tool_results: Mapped[list] = mapped_column(JSONB, default=list)
+    plan: Mapped[dict] = mapped_column(JSONB, default=dict)
+    approval: Mapped[dict] = mapped_column(JSONB, default=dict)
+    flags: Mapped[dict] = mapped_column(JSONB, default=dict)
+    contract_version: Mapped[int] = mapped_column(Integer, default=1)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

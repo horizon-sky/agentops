@@ -88,7 +88,7 @@ async def test_high_risk_tool_triggers_hitl_and_suspends() -> None:
         ],
         "citations": [],
         "tool_results": [],
-        "plan": [],
+        "plan": {},
         "retry": 0,
     }
     graph, _persisted = await build_graph(settings, runner.llm)
@@ -128,7 +128,9 @@ async def test_rejected_write_tool_is_never_executed(monkeypatch) -> None:
     )
     assert "hitl_request" in collector.types
 
-    await runner.resume("run-hitl-reject", {"ok": False}, collector)
+    await runner.resume("run-hitl-reject", {
+        "ok": False, "approval_id": "run-hitl-reject:tool-0",
+    }, collector)
 
     assert calls == []
     assert any(
@@ -157,11 +159,15 @@ async def test_only_checkpoint_owner_can_approve_write_tools(monkeypatch) -> Non
     assert await runner.awaiting_approval("owned-approval")
     assert calls == []
     with pytest.raises(PermissionError):
-        await runner.resume("owned-approval", {"ok": True}, collector, user_id="bob")
+        await runner.resume("owned-approval", {
+            "ok": True, "approval_id": "owned-approval:tool-0",
+        }, collector, user_id="bob")
     assert calls == []
-    await runner.resume("owned-approval", {"ok": True}, collector, user_id="alice")
+    await runner.resume("owned-approval", {
+        "ok": True, "approval_id": "owned-approval:tool-0",
+    }, collector, user_id="alice")
     assert calls == [("create_ticket", {
-        "title": "Private", "idempotency_key": "owned-approval:write:0",
+        "title": "Private", "idempotency_key": "owned-approval:tool-0",
     })]
     assert not await runner.awaiting_approval("owned-approval")
     assert collector.types[-1] == "done"
@@ -187,9 +193,13 @@ async def test_each_write_tool_needs_separate_confirmation(monkeypatch) -> None:
             {"name": "create_ticket", "args": {"title": "Second"}},
         ],
     )
-    await runner.resume("two-approvals", {"ok": True}, collector, user_id="alice")
+    await runner.resume("two-approvals", {
+        "ok": True, "approval_id": "two-approvals:tool-0",
+    }, collector, user_id="alice")
     assert await runner.awaiting_approval("two-approvals")
-    assert calls == []
-    await runner.resume("two-approvals", {"ok": False}, collector, user_id="alice")
+    assert calls == ["First"]
+    await runner.resume("two-approvals", {
+        "ok": False, "approval_id": "two-approvals:tool-1",
+    }, collector, user_id="alice")
     assert not await runner.awaiting_approval("two-approvals")
     assert calls == ["First"]

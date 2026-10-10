@@ -12,6 +12,7 @@ export type Stage = "plan" | "retrieve" | "tools" | "generate";
 
 export interface AgentEvent {
   id: string;
+  cursor?: string | null;
   type: EventType;
   run_id: string;
   payload?: Record<string, unknown> | null;
@@ -33,6 +34,18 @@ export interface Citation {
   retrieval_method?: string;
 }
 
+export interface PlanStep {
+  id: string;
+  kind: "retrieve" | "tool" | "answer";
+  goal: string;
+  tool: string | null;
+  args: Record<string, unknown>;
+  depends_on: string[];
+  status: "pending" | "running" | "done" | "failed" | "denied" | "skipped";
+}
+
+export interface ExecutionPlan { version: 1; steps: PlanStep[] }
+
 export interface RetrievalDiagnostic {
   mode?: "echo" | "graph";
   status?: "not_executed" | "unavailable" | "no_documents" | "no_match" | "hit";
@@ -50,6 +63,7 @@ export interface ChunkPreview {
 
 export interface ToolResultPayload {
   name: string;
+  step_id?: string;
   args?: Record<string, unknown>;
   ok: boolean;
   output?: unknown;
@@ -59,8 +73,9 @@ export interface ToolResultPayload {
 }
 
 export interface HitlPayload {
-  tool: string;
-  args?: Record<string, unknown>;
+    tool: string;
+    approval_id: string;
+  args: Record<string, unknown>;
   reason?: string;
 }
 
@@ -87,6 +102,8 @@ export interface RunSnapshot {
   id: string;
   session_id: string;
   status: string;
+  plan?: ExecutionPlan;
+  approval?: HitlPayload;
   model_version?: string;
   prompt_version?: string;
   query?: string;
@@ -101,6 +118,8 @@ export interface RunRef {
   id: string;
   session_id: string;
   status: string;
+  plan?: ExecutionPlan;
+  approval?: HitlPayload;
   model_version?: string;
   prompt_version?: string;
   query?: string;

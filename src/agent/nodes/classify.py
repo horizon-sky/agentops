@@ -48,12 +48,15 @@ async def classify(state: AgentState, config: Any | None = None) -> dict[str, An
 
     intent, confident, reason = "general", True, ""
     if llm is not None:
-        result = await llm.acomplete(
-            [SystemMessage(content=SYSTEM_CLASSIFY), HumanMessage(content=state["query"])],
-            tier="cheap",
-            response_model=IntentOut,
-        )
-        parsed: IntentOut | None = result.parsed
+        try:
+            result = await llm.acomplete(
+                [SystemMessage(content=SYSTEM_CLASSIFY), HumanMessage(content=state["query"])],
+                tier="cheap",
+                response_model=IntentOut,
+            )
+            parsed: IntentOut | None = result.parsed
+        except Exception:
+            parsed = None
         if parsed is not None:
             intent, confident, reason = parsed.intent, parsed.confident, parsed.reason
         else:
@@ -96,4 +99,9 @@ async def classify(state: AgentState, config: Any | None = None) -> dict[str, An
                 ms=timer.ms,
             )
         )
-    return {"intent": intent, "confident": confident}
+    return {
+        "intent": intent,
+        "confident": confident,
+        **({"answer": CLARIFICATION_MESSAGE} if not confident else {}),
+        "execution_ms": state.get("execution_ms", 0) + timer.ms,
+    }

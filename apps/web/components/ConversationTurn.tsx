@@ -3,7 +3,7 @@
 import { ChevronDown, Loader2, Terminal } from "lucide-react";
 import type { ReactNode } from "react";
 import MessageContent from "@/components/MessageContent";
-import type { Citation } from "@/lib/types";
+import type { Citation, PlanStep } from "@/lib/types";
 import type { TimelineStep } from "@/lib/useRun";
 
 export default function ConversationTurn({ query, answer, citations, status, plan = [], steps = [], children, onCitation, onInspect }: {
@@ -11,7 +11,7 @@ export default function ConversationTurn({ query, answer, citations, status, pla
   answer: string;
   citations: Citation[];
   status: string;
-  plan?: string[];
+  plan?: PlanStep[];
   steps?: TimelineStep[];
   children?: ReactNode;
   onCitation: (id: string) => void;
@@ -36,7 +36,7 @@ export default function ConversationTurn({ query, answer, citations, status, pla
               {citations.length ? <span className="ml-auto text-[11px]">{citations.length} 条参考资料</span> : null}
             </summary>
             <div className="activity-body">
-              {plan.length ? <ol className="list-decimal space-y-1 pl-4">{plan.map((step, index) => <li key={index}>{step}</li>)}</ol> : null}
+              {plan.length ? <ol className="list-decimal space-y-1 pl-4">{plan.map(step => <li key={step.id}>{step.goal}</li>)}</ol> : null}
               {activity.length ? <div className="mt-3 space-y-2">{activity.map((step) => <p key={step.stage}><span className="mr-2 text-white/80">{step.label}</span>{step.detail}</p>)}</div> : <p>此记录未保存工作过程，可查看右侧资料和工具结果。</p>}
               <button type="button" onClick={onInspect} className="mt-3 text-xs text-white/80 underline underline-offset-4">查看执行详情</button>
             </div>

@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { abortRun, createRun, resumeRun, streamRun } from "./api";
 import { isHitl, isToolResult } from "./api";
-import type { AgentEvent, Citation, RetrievalDiagnostic, RunSnapshot, Stage, ToolResultPayload } from "./types";
+import type { AgentEvent, Citation, ExecutionPlan, HitlPayload, PlanStep, RetrievalDiagnostic, RunSnapshot, Stage, ToolResultPayload } from "./types";
 import { retrievalMessage } from "./citations";
 
 export interface TimelineStep {
   stage: Stage;
   label: string;
-  status: "pending" | "running" | "done" | "error";
+  status: "pending" | "running" | "done" | "error" | "skipped";
   ms: number;
   detail: string;
 }
@@ -31,16 +31,34 @@ function initialSteps(): TimelineStep[] {
   }));
 }
 
+function evidenceStages(steps: TimelineStep[], plan: ExecutionPlan): TimelineStep[] {
+  return steps.map(step => {
+    if (step.stage !== "tools" && step.stage !== "retrieve") return step;
+    const planned = plan.steps.filter(item => item.kind === (step.stage === "tools" ? "tool" : "retrieve"));
+    if (!planned.length || planned.every(item => item.status === "skipped")) {
+      return { ...step, status: "skipped", detail: "已跳过" };
+    }
+    if (planned.some(item => item.status === "running")) {
+      return { ...step, status: "running", detail: "执行中" };
+    }
+    if (planned.some(item => item.status === "pending")) {
+      return { ...step, status: "pending", detail: "等待执行" };
+    }
+    const failed = planned.some(item => item.status === "failed" || item.status === "denied");
+    return { ...step, status: failed ? "error" : "done", detail: failed ? "部分操作未完成" : "已完成" };
+  });
+}
+
 export function useRun() {
   const [runId, setRunId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [plan, setPlan] = useState<string[]>([]);
+  const [plan, setPlan] = useState<PlanStep[]>([]);
   const [steps, setSteps] = useState<TimelineStep[]>(initialSteps);
   const [answer, setAnswer] = useState("");
   const [citations, setCitations] = useState<Citation[]>([]);
   const [retrieval, setRetrieval] = useState<RetrievalDiagnostic | null>(null);
   const [tools, setTools] = useState<ToolResultPayload[]>([]);
-  const [hitl, setHitl] = useState<{ tool: string; args: Record<string, unknown> } | null>(null);
+  const [hitl, setHitl] = useState<HitlPayload | null>(null);
   const [status, setStatus] = useState<"idle" | "running" | "waiting" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
@@ -68,10 +86,13 @@ export function useRun() {
 
       switch (event.type) {
         case "plan":
-          if (Array.isArray(payload.steps)) {
-            setPlan(payload.steps as string[]);
-            patchStep("plan", { status: "done", ms: event.ms ?? 0, detail: (payload.steps as string[]).join(" → ") });
-            patchStep("retrieve", { status: "running", detail: "正在检索你的资料" });
+          if (payload.status === "skipped") {
+            patchStep(stage, { status: "skipped", detail: "本次无需执行" });
+          } else if (payload.plan && Array.isArray((payload.plan as ExecutionPlan).steps)) {
+            const planned = (payload.plan as ExecutionPlan).steps;
+            setPlan(planned);
+            setSteps(prev => evidenceStages(prev, payload.plan as ExecutionPlan));
+            patchStep("plan", { status: "done", ms: event.ms ?? 0, detail: planned.map(s => s.goal).join(" → ") });
           } else if (!payload.review) {
             patchStep("plan", { status: "running", detail: "正在分析问题并制定计划" });
           }
@@ -86,13 +107,12 @@ export function useRun() {
           if (Array.isArray(payload.citations)) {
             setCitations(payload.citations as unknown as Citation[]);
           }
-          patchStep("tools", { status: "running", detail: "等待工具结果" });
           break;
         case "tool_result":
           if (isToolResult(payload)) {
             setHitl(null);
             setStatus("running");
-            setTools((prev) => [...prev, payload]);
+            setTools((prev) => [...prev.filter(item => item.step_id !== payload.step_id), payload]);
             patchStep("tools", {
               status: "done",
               ms: event.ms ?? 0,
@@ -102,7 +122,7 @@ export function useRun() {
           break;
         case "hitl_request":
           if (isHitl(payload)) {
-            setHitl({ tool: payload.tool, args: payload.args ?? {} });
+            setHitl({ tool: payload.tool, args: payload.args ?? {}, approval_id: payload.approval_id });
             setStatus("waiting");
             patchStep("tools", { status: "running", detail: "等待人工确认" });
           }
@@ -113,6 +133,10 @@ export function useRun() {
           patchStep("generate", { status: "running", detail: "流式生成中" });
           break;
         case "done":
+          if (payload.plan) {
+            setPlan((payload.plan as ExecutionPlan).steps);
+            setSteps(prev => evidenceStages(prev, payload.plan as ExecutionPlan));
+          }
           if (payload.retrieval) setRetrieval(payload.retrieval as RetrievalDiagnostic);
           setHitl(null);
           setStatus("done");
@@ -174,7 +198,7 @@ export function useRun() {
     controllerRef.current?.abort();
     seenEvents.current.clear();
     setQuery(snapshot?.query ?? "");
-    setPlan([]);
+    setPlan(snapshot?.plan?.steps ?? []);
     if (!snapshot) {
       setRunId(null);
       setSteps(initialSteps());
@@ -195,6 +219,13 @@ export function useRun() {
     setTools(snapshot.tool_results ?? []);
     setSteps(
       initialSteps().map((step) => {
+        if (step.stage === "plan" && snapshot.plan?.steps?.length) {
+          return { ...step, status: "done", detail: "已恢复执行计划" };
+        }
+        if ((step.stage === "tools" || step.stage === "retrieve") && snapshot.plan?.steps?.length &&
+            !snapshot.plan.steps.some(s => s.kind === (step.stage === "tools" ? "tool" : "retrieve"))) {
+          return { ...step, status: "skipped", detail: "本次无需执行" };
+        }
         if (step.stage === "retrieve" && snapshot.retrieval?.status) {
           return { ...step, status: snapshot.retrieval.status === "unavailable" ? "error" : "done", detail: retrievalMessage(snapshot.retrieval) };
         }
@@ -211,7 +242,10 @@ export function useRun() {
         return step;
       }),
     );
-    setHitl(null);
+    if (snapshot.plan?.steps?.length) {
+      setSteps(prev => evidenceStages(prev, snapshot.plan as ExecutionPlan));
+    }
+    setHitl(snapshot.approval?.approval_id ? snapshot.approval : null);
     setError(null);
     setStatus(snapshot.status === "failed" ? "error" : snapshot.status === "awaiting_approval" ? "waiting" : snapshot.status === "running" ? "running" : "done");
     window.localStorage.setItem("agentops:last-run-id", snapshot.id);
@@ -241,7 +275,7 @@ export function useRun() {
       controllerRef.current = controller;
       let resumed = false;
       try {
-        await resumeRun(runId, ok, args);
+        await resumeRun(runId, ok, args, hitl?.approval_id);
         if (controller.signal.aborted) return;
         resumed = true;
         setHitl(null);

@@ -34,7 +34,10 @@ services:
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       MAIL_FROM: ${MAIL_FROM:-}
-      AGENT_MODE: echo
+      AGENT_MODE: ${AGENT_MODE:-echo}
+      AGENT_CONDITIONAL_ROUTING: ${AGENT_CONDITIONAL_ROUTING:-false}
+      AGENT_TARGETED_RETRY: ${AGENT_TARGETED_RETRY:-false}
+      AGENT_DYNAMIC_PLAN: ${AGENT_DYNAMIC_PLAN:-false}
     ports:
       - "8000:8000"
     depends_on:

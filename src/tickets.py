@@ -38,10 +38,15 @@ async def persist_ticket(
         .with_for_update()
     )
     run = await db.scalar(
-        select(Run).join(Session).where(Run.id == run_id, Session.owner_id == owner_id)
+        select(Run)
+        .join(Session)
+        .where(Run.id == run_id, Session.owner_id == owner_id)
+        .with_for_update(of=Run)
     )
     if owner is None or run is None:
         raise PermissionError("Ticket creation requires an owned run and verified user")
+    if run.status == "aborted":
+        raise PermissionError("Run was aborted; ticket creation cancelled")
     ticket = await db.scalar(
         select(Ticket).where(Ticket.owner_id == owner_id, Ticket.idempotency_key == idempotency_key)
     )

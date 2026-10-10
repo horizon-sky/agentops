@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import Awaitable, Callable
 from time import perf_counter
 from typing import Any
+
+from pydantic import ValidationError
 
 from src.agent.context import get as ctx_get
 from src.agent.state import ToolResult
@@ -107,10 +110,23 @@ class ToolRegistry:
         spec = self.specs.get(name)
         return bool(spec and spec.risk in ("write", "high"))
 
-    async def call(self, name: str, args: dict[str, Any]) -> ToolResult:
+    async def call(
+        self, name: str, args: dict[str, Any], *, max_attempts: int | None = None
+    ) -> ToolResult:
         spec = self.specs.get(name)
         if spec is None:
             return ToolResult(name=name, args=args, ok=False, error=f"未注册的工具 {name}")
+
+        try:
+            args = spec.args_model.model_validate(args).model_dump()
+        except ValidationError as exc:
+            return ToolResult(
+                name=name, args=args, ok=False, error=f"Invalid arguments: {exc}", risk=spec.risk
+            )
+        if self.is_high_risk(name) and not ctx_get("write_approved", False):
+            return ToolResult(
+                name=name, args=args, ok=False, error="Write approval required", risk=spec.risk
+            )
 
         # 幂等：key 相同则复用首次结果，避免重复建单
         use_cache = spec.idempotent and name != "create_ticket"
@@ -128,14 +144,28 @@ class ToolRegistry:
         started = perf_counter()
         output: Any = None
         error: str | None = None
-        for attempt in range(spec.retries + 1):
+        retries = 0 if self.is_high_risk(name) else spec.retries
+        if max_attempts is not None:
+            if max_attempts <= 0:
+                return ToolResult(
+                    name=name,
+                    args=args,
+                    ok=False,
+                    error="Read call budget exhausted",
+                    risk=spec.risk,
+                )
+            retries = min(retries, max_attempts - 1)
+        attempts = 0
+        for attempt in range(retries + 1):
+            attempts += 1
             try:
-                maybe = self.executors[name](args)
-                if asyncio.iscoroutine(maybe):
-                    output = await asyncio.wait_for(maybe, timeout=spec.timeout_s)
+                executor = self.executors[name]
+                if inspect.iscoroutinefunction(executor):
+                    output = await asyncio.wait_for(executor(args), timeout=spec.timeout_s)
                 else:
+                    # A timed-out thread may still finish; never automatically retry writes.
                     output = await asyncio.wait_for(
-                        asyncio.to_thread(lambda value=maybe: value), timeout=spec.timeout_s
+                        asyncio.to_thread(executor, args), timeout=spec.timeout_s
                     )
                 error = None
                 break
@@ -143,7 +173,7 @@ class ToolRegistry:
                 error = f"工具超时（>{spec.timeout_s}s）"
             except Exception as exc:  # noqa: BLE001 - 工具异常需转成结构化结果
                 error = f"{type(exc).__name__}: {str(exc)[:160]}"
-            if attempt < spec.retries:
+            if attempt < retries:
                 await asyncio.sleep(0.3 * (attempt + 1))
 
         elapsed = int((perf_counter() - started) * 1000)
@@ -155,6 +185,7 @@ class ToolRegistry:
             error=error,
             risk=spec.risk,
             ms=elapsed,
+            attempts=attempts,
         )
 
         if use_cache and tool_result.ok:

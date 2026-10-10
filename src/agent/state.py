@@ -22,12 +22,14 @@ class ToolCall(BaseModel):
 
 class ToolResult(BaseModel):
     name: str
+    step_id: str = ""
     args: dict[str, Any] = Field(default_factory=dict)
     ok: bool = True
     output: Any | None = None
     error: str | None = None
     ms: int = 0
     risk: str = "read"
+    attempts: int = 0
 
 
 class HitlRequest(BaseModel):
@@ -45,7 +47,7 @@ class AgentState(TypedDict, total=False):
     query: str
     intent: str
     confident: bool
-    plan: list[str]
+    plan: dict[str, Any]
     citations: list[dict[str, Any]]
     retrieval: dict[str, Any]
     pending_calls: list[dict[str, Any]]
@@ -56,3 +58,13 @@ class AgentState(TypedDict, total=False):
     sufficient: bool
     retry: int
     error_stage: str
+    operations: dict[str, dict[str, Any]]
+    tools_pending: bool
+    active_step_ids: list[str]
+    flags: dict[str, bool | str]
+    review: dict[str, Any]
+    fingerprints: list[str]
+    read_calls: int
+    execution_ms: int
+    retry_query: str
+    stop_reason: str

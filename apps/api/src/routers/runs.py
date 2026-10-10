@@ -34,25 +34,37 @@ _tasks: dict[str, asyncio.Task[None]] = {}
 
 
 async def _persist_run_result(run_id: str, settings: Settings, event: AgentEvent) -> None:
-    if event.type not in {"retrieve", "done"} or not event.payload:
+    if (
+        event.type not in {"retrieve", "done", "plan", "hitl_request", "tool_result"}
+        or not event.payload
+    ):
         return
     factory = get_session_factory(settings)
     if factory is None:
         return
-    payload = event.payload
     try:
         async with factory() as db:
             run = await db.scalar(select(Run).where(Run.id == uuid.UUID(run_id)))
             if run is None:
                 return
-            if "answer" in payload:
-                run.answer = str(payload.get("answer") or "")
-            if "citations" in payload:
-                run.citations = payload.get("citations") or []
-            if "retrieval" in payload:
-                run.retrieval = payload.get("retrieval") or {}
+            payload = event.payload
+            for field in ("answer", "citations", "retrieval", "plan"):
+                if field in payload:
+                    setattr(run, field, payload[field])
             if "tools" in payload:
-                run.tool_results = payload.get("tools") or []
+                run.tool_results = payload["tools"]
+            if event.type == "hitl_request":
+                run.approval = payload
+            if event.type == "tool_result":
+                run.tool_results = [
+                    result
+                    for result in (run.tool_results or [])
+                    if result.get("step_id") != payload.get("step_id")
+                ] + [payload]
+                if (run.approval or {}).get("step_id") == payload.get("step_id"):
+                    run.approval = {}
+            if event.type == "done":
+                run.approval = {}
             await db.commit()
     except Exception:
         # 结果快照失败不应中断 SSE；运行状态仍由 _execute 收敛。
@@ -74,11 +86,16 @@ async def create_run(
     settings: Settings = Depends(settings_dep),
     identity: Principal = Depends(current_user),
 ) -> RunOut:
+    if not settings.accept_new_runs:
+        raise HTTPException(503, "任务契约升级中，暂不接收新任务")
     await owned_session(db, payload.session_id, identity.user.id)
     # Serialize admissions per user so concurrent requests cannot bypass the quota.
     await db.execute(select(User.id).where(User.id == identity.user.id).with_for_update())
-    user_runs = select(func.count()).select_from(Run).join(Session).where(
-        Session.owner_id == identity.user.id
+    user_runs = (
+        select(func.count())
+        .select_from(Run)
+        .join(Session)
+        .where(Session.owner_id == identity.user.id)
     )
     active = await db.scalar(user_runs.where(Run.status.in_(["running", "awaiting_approval"])))
     day_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -95,11 +112,11 @@ async def create_run(
         status="running",
         model_version=settings.strong_model,
         prompt_version=settings.prompt_version,
+        flags=settings.agent_flags(),
     )
     db.add(run)
     await db.commit()
     user_id = str(identity.user.id)
-
     runner = get_runner(settings)
 
     async def _execute() -> None:
@@ -107,8 +124,8 @@ async def create_run(
             await runner.run(
                 str(run_id), payload.query, _make_emit(str(run_id), settings), user_id=user_id
             )
-            pending = (
-                isinstance(runner, GraphRunner) and await runner.awaiting_approval(str(run_id))
+            pending = isinstance(runner, GraphRunner) and await runner.awaiting_approval(
+                str(run_id)
             )
             await _update_run(
                 run_id,
@@ -153,6 +170,8 @@ async def _update_run(
         run = await db.scalar(select(Run).where(Run.id == run_id).with_for_update())
         if run is None or run.status == "aborted":
             return
+        if status == "completed" and any(r.get("denied") for r in (run.tool_results or [])):
+            status = "rejected"
         run.status = status
         run.error_stage = error_stage
         if ended:
@@ -205,6 +224,21 @@ async def resume_run(
     run = await owned_run(db, run_id, identity.user.id, lock=True)
     if run.status != "awaiting_approval":
         raise HTTPException(409, "当前任务没有待确认操作")
+    flags = run.flags or {}
+    settings = (
+        settings.model_copy(
+            update={
+                "agent_mode": flags.get("mode", settings.agent_mode),
+                "agent_conditional_routing": flags.get(
+                    "routing", settings.agent_conditional_routing
+                ),
+                "agent_targeted_retry": flags.get("retry", settings.agent_targeted_retry),
+                "agent_dynamic_plan": flags.get("dynamic", settings.agent_dynamic_plan),
+            }
+        )
+        if flags
+        else settings
+    )
     runner = get_runner(settings)
     if not isinstance(runner, GraphRunner):
         raise HTTPException(
@@ -212,6 +246,16 @@ async def resume_run(
             detail="当前为 echo 模式，无待确认任务；设置 AGENT_MODE=graph 后可用",
         )
 
+    if not payload.approval_id or payload.approval_id != (run.approval or {}).get("approval_id"):
+        raise HTTPException(409, "审批已过期或与当前操作不匹配")
+
+    payload_dict = {
+        "ok": payload.ok,
+        "args": payload.args or {},
+        "approval_id": payload.approval_id,
+    }
+    if payload.comment:
+        payload_dict["comment"] = payload.comment
     run.status = "running"
     await db.commit()
     user_id = str(identity.user.id)
@@ -220,18 +264,14 @@ async def resume_run(
         bus.publish(event)
         await _persist_run_result(str(run_id), settings, event)
 
-    payload_dict = {"ok": payload.ok, "args": payload.args or {}}
-    if payload.comment:
-        payload_dict["comment"] = payload.comment
-
     async def _resume() -> None:
         try:
             await runner.resume(str(run_id), payload_dict, emit, user_id=user_id)
             pending = await runner.awaiting_approval(str(run_id))
-            final_status = "completed" if payload.ok else "rejected"
             await _update_run(
-                run_id, settings,
-                status="awaiting_approval" if pending else final_status,
+                run_id,
+                settings,
+                status="awaiting_approval" if pending else "completed",
                 ended=not pending,
             )
         except Exception as exc:  # noqa: BLE001
@@ -263,14 +303,13 @@ async def abort_run(
         run.status = "aborted"
         run.ended_at = datetime.now(UTC)
         await db.commit()
-        bus.publish(
-            make_event(type="done", run_id=str(run_id), payload={"aborted": True})
-        )
+        bus.publish(make_event(type="done", run_id=str(run_id), payload={"aborted": True}))
         return OkOut(ok=True, detail="已中断")
     if run.status in {"running", "awaiting_approval"}:
         run.status = "aborted"
         run.ended_at = datetime.now(UTC)
         await db.commit()
+        bus.publish(make_event(type="done", run_id=str(run_id), payload={"aborted": True}))
         return OkOut(ok=True, detail="已中断")
     return OkOut(ok=False, detail="任务已经结束")
 
@@ -283,12 +322,14 @@ async def run_status(
 ) -> dict[str, object]:
     run = await owned_run(db, run_id, identity.user.id)
     events = bus.history(str(run_id))
+    count = len(events)
+    last_at = events[-1].ts.isoformat() if events else None
     return {
         "run_id": str(run_id),
         "state": run.status,
         "status": run.status,
         "error_stage": run.error_stage,
-        "event_count": len(events),
-        "last_event_at": events[-1].ts.isoformat() if events else None,
+        "event_count": count,
+        "last_event_at": last_at,
         "checked_at": datetime.now(UTC).isoformat(),
     }

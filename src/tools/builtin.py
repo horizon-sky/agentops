@@ -13,7 +13,7 @@ import re
 import uuid
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.tickets import TicketFields
 
@@ -22,13 +22,17 @@ DATA_DIR = ROOT / "data"
 
 
 class SearchCodeArgs(BaseModel):
-    query: str = Field(description="检索关键字或错误信息")
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(min_length=1, max_length=4000, description="检索关键字或错误信息")
     top_k: int = Field(default=5, ge=1, le=20)
 
 
 class QueryMetricsArgs(BaseModel):
-    service: str = Field(default="order-service", description="服务名")
-    window: str = Field(default="1h", description="时间窗口，如 15m / 1h / 24h")
+    model_config = ConfigDict(extra="forbid")
+    service: str = Field(
+        default="order-service", min_length=1, max_length=120, description="服务名"
+    )
+    window: str = Field(default="1h", pattern=r"^[1-9][0-9]*[mhd]$", description="时间窗口")
 
 
 class CreateTicketArgs(TicketFields):
@@ -36,6 +40,7 @@ class CreateTicketArgs(TicketFields):
 
 
 class DraftReportArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     title: str
     sections: list[str] = Field(default_factory=list)
 
@@ -73,6 +78,7 @@ def query_metrics(args: dict[str, object]) -> dict[str, object]:
         "service": service,
         "window": window,
         "series": services.get(service, services.get("default", [])),
+        "note": "样例指标数据，不代表实时监控结果",
     }
 
 

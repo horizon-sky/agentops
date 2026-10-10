@@ -55,9 +55,10 @@ async def test_sse_stream_emits_heartbeat_and_terminates_on_done() -> None:
     asyncio.get_event_loop().create_task(producer())
     frames = []
     async for frame in sse_stream(run_id, event_bus=bus, idle_timeout_s=60):
-        if not frame.startswith("data: "):
+        data = next((line[6:] for line in frame.splitlines() if line.startswith("data: ")), None)
+        if data is None:
             continue  # 跳过 retry 等控制帧
-        frames.append(json.loads(frame.replace("data: ", "").strip()))
+        frames.append(json.loads(data))
         if len(frames) >= 2:
             break
     assert [frame["type"] for frame in frames] == ["token", "done"]

@@ -51,10 +51,16 @@ class Collector:
         self.hitl = False
         self.answer = ""
         self.tokens = 0
+        self.approval: dict[str, object] = {}
+        self.approval_count = 0
+        self.retry_count = 0
+        self.events: list[str] = []
 
     async def __call__(self, event: AgentEvent) -> None:
         payload = event.payload or {}
+        self.events.append(event.type)
         if event.type == "plan":
+            self.retry_count = max(self.retry_count, int(payload.get("review", {}).get("retry", 0)))
             if isinstance(payload.get("intent"), str):
                 self.intent = payload["intent"]
         elif event.type == "retrieve":
@@ -68,6 +74,8 @@ class Collector:
                 self.tools.append(name)
         elif event.type == "hitl_request":
             self.hitl = True
+            self.approval = payload
+            self.approval_count += 1
         elif event.type == "done":
             self.answer = str(payload.get("answer", "") or "")
             citations = payload.get("citations")
@@ -75,9 +83,7 @@ class Collector:
                 self.citations = max(self.citations, len(citations))
 
 
-async def _create_eval_run(
-    run_id: str, query: str, settings: Settings, user_id: str = ""
-) -> None:
+async def _create_eval_run(run_id: str, query: str, settings: Settings, user_id: str = "") -> None:
     factory = get_session_factory(settings)
     if factory is None:
         return
@@ -137,7 +143,11 @@ async def run_case(
             run_id, str(case["query"]), collector, pending_calls=pending, user_id=user_id
         )
         while await runner.awaiting_approval(run_id):  # 评测中模拟人工审批通过
-            approve_args = {"ok": True, "args": {"title": str(case["query"])[:40]}}
+            approve_args = {
+                "ok": True,
+                "args": {"title": str(case["query"])[:40]},
+                "approval_id": collector.approval.get("approval_id"),
+            }
             await runner.resume(run_id, approve_args, collector, user_id=user_id)
     except Exception:
         await _finish_eval_run(run_id, settings, "failed")
@@ -154,6 +164,9 @@ async def run_case(
             "citations": collector.citations,
             "hitl": collector.hitl,
             "answer": collector.answer,
+            "approval_count": collector.approval_count,
+            "retry_count": collector.retry_count,
+            "events": collector.events,
         },
         db_available=settings.has_database,
     )

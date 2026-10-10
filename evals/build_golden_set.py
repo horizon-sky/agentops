@@ -75,6 +75,15 @@ def build() -> list[dict[str, object]]:
                 "expect_hitl": bool(asserts.get("expect_hitl", False)),
                 "expect_refusal": bool(asserts.get("expect_refusal", False)),
                 "difficulty": asserts.get("difficulty", "normal"),
+                "forbidden_tools": [
+                    tool for tool in ("create_ticket", "draft_report") if tool not in tools
+                ],
+                "max_approvals": 1 if asserts.get("expect_hitl") else 0,
+                "max_retries": 2,
+                "event_order": (
+                    ["retrieve", "tool_result", "hitl_request", "done"]
+                    if asserts.get("expect_hitl") else []
+                ),
             }
         )
 

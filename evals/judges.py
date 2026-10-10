@@ -25,6 +25,23 @@ def judge(
 
     plan_pass = (case["expect_intent"] in (None, intent)) if case.get("expect_intent") else True
     tool_pass = set(case.get("expect_tools", [])).issubset(tools)
+    tool_pass = tool_pass and not (set(case.get("forbidden_tools", [])) & tools)
+    if "max_tool_calls" in case:
+        tool_pass = tool_pass and len(trace.get("tools", [])) <= case["max_tool_calls"]
+    if "max_approvals" in case:
+        tool_pass = tool_pass and trace.get("approval_count", 0) <= case["max_approvals"]
+    plan_pass = plan_pass and trace.get("retry_count", 0) <= case.get("max_retries", 2)
+    positions = {
+        event: trace.get("events", []).index(event)
+        for event in case.get("event_order", [])
+        if event in trace.get("events", [])
+    }
+    order = case.get("event_order", [])
+    plan_pass = (
+        plan_pass
+        and len(positions) == len(order)
+        and all(positions[a] < positions[b] for a, b in zip(order, order[1:], strict=False))
+    )
     citation_skipped = bool(case.get("require_citation")) and not db_available
     retrieve_pass = (
         True
@@ -34,9 +51,7 @@ def judge(
     hitl_pass = (not case.get("expect_hitl")) or hitl
     refusal_pass = True
     if case.get("expect_refusal"):
-        refusal_pass = any(keyword in answer for keyword in REFUSAL_KEYWORDS) or (
-            "抱歉" in answer
-        )
+        refusal_pass = any(keyword in answer for keyword in REFUSAL_KEYWORDS) or ("抱歉" in answer)
 
     stages = {
         "plan": plan_pass,

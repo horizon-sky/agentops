@@ -374,6 +374,63 @@ async def test_completed_run_persists_echo_output(account_app):
         assert stored.answer == "hello"
 
 
+@pytest.mark.parametrize("approved", [False, True])
+async def test_local_api_restores_plan_and_resumes_approval_once(
+    account_app, monkeypatch, approved
+):
+    from src.tools.registry import ToolRegistry
+
+    client, factory, mail, settings = account_app
+    settings.agent_mode = "graph"
+    settings.agent_conditional_routing = True
+    settings.agent_targeted_retry = True
+    monkeypatch.setattr("src.db.session.get_session_factory", lambda _: factory)
+    monkeypatch.setattr("src.tools.registry._registry", ToolRegistry(settings))
+    headers = await signed_in(client, mail)
+    session_id = (await client.post(
+        "/sessions", json={"title": "Local approval"}, headers=headers
+    )).json()["id"]
+    response = await client.post(
+        "/runs", json={"session_id": session_id, "query": "创建 P1 工单"}, headers=headers
+    )
+    assert response.status_code == 201
+    run_id = response.json()["id"]
+    await runs._tasks[run_id]
+    snapshot = (await client.get(f"/sessions/{session_id}/runs", headers=headers)).json()[0]
+    assert snapshot["status"] == "awaiting_approval"
+    assert snapshot["plan"]["version"] == 1
+    approval_id = snapshot["approval"]["approval_id"]
+    write = next(step for step in snapshot["plan"]["steps"] if step["tool"] == "create_ticket")
+    assert approval_id == f"{run_id}:{write['id']}"
+    assert any(result["name"] == "search_code" for result in snapshot["tool_results"])
+    async with factory() as db:
+        assert await db.scalar(select(Ticket)) is None
+    assert (await client.post(
+        f"/runs/{run_id}/resume", json={"ok": approved, "approval_id": "stale"}, headers=headers
+    )).status_code == 409
+
+    # New-run switches must not change a waiting run's graph or checkpoint.
+    settings.agent_conditional_routing = False
+    settings.agent_targeted_retry = False
+    decision = {"ok": approved, "approval_id": approval_id}
+    assert (await client.post(
+        f"/runs/{run_id}/resume", json=decision, headers=headers
+    )).status_code == 200
+    await runs._tasks[f"{run_id}:resume"]
+    assert (await client.post(
+        f"/runs/{run_id}/resume", json=decision, headers=headers
+    )).status_code == 409
+    restored = (await client.get(f"/sessions/{session_id}/runs", headers=headers)).json()[0]
+    assert restored["status"] == ("completed" if approved else "rejected")
+    assert restored["approval"] == {}
+    assert sum(result["name"] == "create_ticket" for result in restored["tool_results"]) == 1
+    async with factory() as db:
+        tickets = list(await db.scalars(select(Ticket)))
+        assert len(tickets) == int(approved)
+        if approved:
+            assert tickets[0].idempotency_key == approval_id
+
+
 async def test_document_upload_passes_server_identity_and_enforces_limits(account_app, monkeypatch):
     client, _, mail, settings = account_app
     headers = await signed_in(client, mail)
@@ -501,10 +558,12 @@ async def test_ticket_approval_persists_once_and_archived_retry_fails(account_ap
         str(run_id),
         {
             "ok": True,
+            "approval_id": approval["approval_id"],
             "args": {
                 "title": "Edited title",
                 "severity": "P0",
                 "detail": "Private detail",
+                "idempotency_key": "user-controlled-key",
             },
         },
         emit,
@@ -516,6 +575,7 @@ async def test_ticket_approval_persists_once_and_archived_retry_fails(account_ap
         if event.type == "tool_result" and event.payload["name"] == "create_ticket"
     )
     assert result["ok"] is True
+    assert result["args"]["idempotency_key"] == f"{run_id}:tool-1"
     from src.agent.context import bind
     from src.tools.builtin import create_ticket
 
@@ -552,7 +612,9 @@ async def test_rejected_ticket_never_persists(account_app, monkeypatch):
 
     runner = GraphRunner(settings)
     await runner.run(str(run_id), "创建工单", emit, user_id=str(user_id))
-    await runner.resume(str(run_id), {"ok": False}, emit, user_id=str(user_id))
+    await runner.resume(str(run_id), {
+        "ok": False, "approval_id": (await runner.approval(str(run_id)))["approval_id"],
+    }, emit, user_id=str(user_id))
     async with factory() as db:
         assert (await db.execute(select(Ticket))).scalars().all() == []
 

@@ -62,6 +62,21 @@ class Settings(BaseSettings):
     mcp_mode: str = "inprocess"  # inprocess | stdio
     agent_mode: str = "echo"  # echo（链路跑通） | graph（LangGraph 编排，M2 启用）
     prompt_version: str = "2026.09.22-v1"
+    agent_conditional_routing: bool = False
+    agent_targeted_retry: bool = False
+    agent_dynamic_plan: bool = False
+    agent_max_steps: int = 8
+    agent_max_read_calls: int = 8
+    agent_max_execution_s: float = 180.0
+    accept_new_runs: bool = True
+
+    def agent_flags(self) -> dict[str, bool | str]:
+        return {
+            "routing": self.agent_conditional_routing,
+            "retry": self.agent_targeted_retry,
+            "dynamic": self.agent_dynamic_plan,
+            "mode": self.agent_mode,
+        }
 
     @property
     def cors_origins_list(self) -> list[str]:

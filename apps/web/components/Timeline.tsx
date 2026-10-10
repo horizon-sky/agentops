@@ -8,6 +8,7 @@ const STATUS_STYLE: Record<TimelineStep["status"], string> = {
   running: "border-brand-cyan/60 text-brand-cyan",
   done: "border-success/50 text-success",
   error: "border-danger/60 text-danger",
+  skipped: "border-white/10 text-muted",
 };
 
 function StatusIcon({ status }: { status: TimelineStep["status"] }) {

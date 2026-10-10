@@ -25,6 +25,10 @@ async def retrieve(state: AgentState, config: Any | None = None) -> dict[str, An
     settings = ctx_get("settings") or get_settings()
     emit = get_emit(config)
     timer = Timer()
+    plan = state.get("plan")
+    selected = next((s for s in (plan or {}).get("steps", [])
+                     if s["id"] in state.get("active_step_ids", [])), None)
+    query = (selected or {}).get("args", {}).get("query", state["query"])
 
     citations: list[dict[str, Any]] = []
     diagnostic = {"mode": "graph", "status": "unavailable", "reason": "database_missing"}
@@ -47,7 +51,7 @@ async def retrieve(state: AgentState, config: Any | None = None) -> dict[str, An
                 diagnostic.update(status="no_documents", reason="empty_library")
             else:
                 hits = await hybrid_search(
-                    state["query"], top_k=5, settings=settings, owner_id=owner_id
+                    query, top_k=5, settings=settings, owner_id=owner_id
                 )
                 citations = [hit.model_dump() for hit in hits]
                 diagnostic.update(
@@ -57,6 +61,11 @@ async def retrieve(state: AgentState, config: Any | None = None) -> dict[str, An
     except Exception:  # noqa: BLE001 - 不在事件中暴露数据库连接串或服务凭据
         diagnostic.update(status="unavailable", reason="retrieval_error")
     note = diagnostic["reason"]
+    merged = {str(c.get("citation_id") or c.get("chunk_id")): c
+              for c in state.get("citations", []) + citations}
+    citations = list(merged.values())
+    if selected:
+        selected["status"] = "failed" if diagnostic["status"] == "unavailable" else "done"
 
     await TraceRecorder(settings, state.get("run_id")).record(
         run_id=state.get("run_id", ""),
@@ -79,4 +88,7 @@ async def retrieve(state: AgentState, config: Any | None = None) -> dict[str, An
         ms=timer.ms,
     )
     await emit(event)
-    return {"citations": citations, "retrieval": diagnostic}
+    result = {"citations": citations, "retrieval": diagnostic}
+    if plan:
+        result.update(plan=plan, execution_ms=state.get("execution_ms", 0) + timer.ms)
+    return result
