@@ -25,4 +25,8 @@ assert.match(retrievalMessage({ mode: "echo", status: "not_executed" }), /echo/)
 assert.match(retrievalMessage({ mode: "graph", status: "no_documents", reason: "empty_library" }), /没有可检索/);
 assert.match(retrievalMessage({ mode: "graph", status: "unavailable", reason: "retrieval_error" }), /异常/);
 assert.match(retrievalMessage({}), /无法判断/);
+assert.match(retrievalMessage({ mode: "graph", status: "unavailable", reason: "database_error" }), /数据库查询失败/);
+const degraded = retrievalMessage({ mode: "graph", status: "hit", reason: "matched", degraded: true, warnings: ["embedding_error", "rerank_error"] });
+assert.match(degraded, /关键词检索/);
+assert.match(degraded, /原始检索排序/);
 console.log("Citation regression tests passed");

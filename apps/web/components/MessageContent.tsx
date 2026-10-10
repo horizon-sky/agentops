@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { answerParts, citationId } from "@/lib/citations";
+import { replyTableAt } from "@/lib/replyTables";
 import type { Citation } from "@/lib/types";
 
 // Render common reply formatting as React elements; never inject model HTML.
@@ -15,7 +16,7 @@ export default function MessageContent({ text, citations, onCitation }: {
     return <span key={index}>{part.text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((piece, i) => piece.startsWith("**") && piece.endsWith("**") ? <strong key={i}>{piece.slice(2, -2)}</strong> : piece.startsWith("`") && piece.endsWith("`") ? <code key={i}>{piece.slice(1, -1)}</code> : piece)}</span>;
   });
 
-  const lines = text.split("\n");
+  const lines = text.split(/\r?\n/);
   const blocks: ReactNode[] = [];
   let index = 0;
   while (index < lines.length) {
@@ -29,6 +30,25 @@ export default function MessageContent({ text, citations, onCitation }: {
       while (index < lines.length && !/^\s*```/.test(lines[index])) code.push(lines[index++]);
       if (index < lines.length) index++;
       blocks.push(<div key={key} className="reply-code">{language ? <div className="reply-code-label">{language}</div> : null}<pre><code>{code.join("\n")}</code></pre></div>);
+      continue;
+    }
+    const table = replyTableAt(lines, index);
+    if (table) {
+      blocks.push(
+        <div key={key} className="reply-table-scroll" role="region" aria-label="回复数据表格" tabIndex={0}>
+          <table className="reply-table">
+            <thead><tr>{table.headers.map((header, column) =>
+              <th key={column} scope="col" style={{ textAlign: table.alignments[column] }}>{inline(header)}</th>
+            )}</tr></thead>
+            <tbody>{table.rows.map((row, rowIndex) =>
+              <tr key={rowIndex}>{row.map((cell, column) =>
+                <td key={column} style={{ textAlign: table.alignments[column] }}>{inline(cell)}</td>
+              )}</tr>
+            )}</tbody>
+          </table>
+        </div>
+      );
+      index = table.nextLine;
       continue;
     }
     const heading = line.match(/^#{1,6}\s+(.+)/);
@@ -49,7 +69,7 @@ export default function MessageContent({ text, citations, onCitation }: {
     }
     const paragraph = [line];
     index++;
-    while (index < lines.length && lines[index].trim() && !/^\s*(?:```|#{1,6}\s|[-*+]\s|\d+[.)]\s)/.test(lines[index])) paragraph.push(lines[index++]);
+    while (index < lines.length && lines[index].trim() && !replyTableAt(lines, index) && !/^\s*(?:```|#{1,6}\s|[-*+]\s|\d+[.)]\s)/.test(lines[index])) paragraph.push(lines[index++]);
     blocks.push(<p key={key}>{inline(paragraph.join("\n"))}</p>);
   }
   return <div className="reply-content">{blocks}</div>;

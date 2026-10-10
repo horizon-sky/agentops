@@ -50,6 +50,11 @@ export interface RetrievalDiagnostic {
   mode?: "echo" | "graph";
   status?: "not_executed" | "unavailable" | "no_documents" | "no_match" | "hit";
   reason?: string;
+  method?: "hybrid" | "keyword";
+  degraded?: boolean;
+  warnings?: string[];
+  error_type?: string;
+  error_types?: Record<string, string>;
 }
 
 export interface ChunkPreview {

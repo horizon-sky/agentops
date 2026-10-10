@@ -12,12 +12,15 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 # 结构化输出用的 Pydantic 模型来自节点内部定义，这里只做类型标注
 StructuredModel = Any
+logger = logging.getLogger("agentops.model")
 
 
 @dataclass
@@ -115,9 +118,11 @@ class OpenAILike:
         self._client = AsyncOpenAI(
             base_url=settings.llm_base_url or None,
             api_key=settings.llm_api_key or "EMPTY",
+            timeout=settings.request_timeout_s,
         )
         self._cheap = settings.llm_model_cheap or settings.llm_model
         self._strong = settings.llm_model_strong or settings.llm_model
+        self._json_mode_models: set[str] = set()
 
     def _model(self, tier: str) -> str:
         return self._strong if tier == "strong" else self._cheap
@@ -141,10 +146,41 @@ class OpenAILike:
             "messages": self._messages(messages),
         }
         if response_model is not None:
-            completion = await self._client.beta.chat.completions.parse(
-                **payload, response_format=response_model
+            from openai import APIStatusError
+
+            model = payload["model"]
+            if model not in self._json_mode_models:
+                try:
+                    # A format incompatibility cannot be repaired by SDK retries.
+                    completion = await self._client.with_options(
+                        max_retries=0
+                    ).beta.chat.completions.parse(**payload, response_format=response_model)
+                    return ModelResult(
+                        text="", parsed=completion.choices[0].message.parsed,
+                        usage=_usage(completion),
+                    )
+                except APIStatusError as exc:
+                    body = str(exc.body).lower()
+                    if exc.status_code not in {400, 422, 500} or not any(
+                        key in body for key in ("json_schema", "response_format")
+                    ):
+                        raise
+                    self._json_mode_models.add(model)
+                    logger.warning(
+                        "structured_output_fallback model=%s error_type=%s status=%s",
+                        model, type(exc).__name__, exc.status_code,
+                    )
+            schema = json.dumps(response_model.model_json_schema(), ensure_ascii=False)
+            completion = await self._client.chat.completions.create(
+                **{**payload, "messages": [
+                    {"role": "system", "content": (
+                        "Return only a JSON object matching this schema: " + schema
+                    )},
+                    *payload["messages"],
+                ]},
+                response_format={"type": "json_object"},
             )
-            parsed = completion.choices[0].message.parsed
+            parsed = response_model.model_validate_json(completion.choices[0].message.content or "")
             return ModelResult(text="", parsed=parsed, usage=_usage(completion))
 
         completion = await self._client.chat.completions.create(**payload)
@@ -188,6 +224,8 @@ class OpenAIEmbedder:
         self._client = AsyncOpenAI(
             base_url=settings.embedding_base_url or None,
             api_key=settings.embedding_api_key or "EMPTY",
+            timeout=settings.request_timeout_s,
+            max_retries=0,
         )
         self._model = settings.embedding_model
         self.dims = settings.embedding_dim
@@ -211,6 +249,8 @@ class OpenAIReranker:
         self._client = AsyncOpenAI(
             base_url=settings.rerank_base_url or None,
             api_key=settings.rerank_api_key or "EMPTY",
+            timeout=settings.request_timeout_s,
+            max_retries=0,
         )
         self._model = settings.rerank_model
 

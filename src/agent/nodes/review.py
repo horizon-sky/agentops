@@ -78,7 +78,11 @@ async def review(state: AgentState, config: Any | None = None) -> dict[str, Any]
                 result = response.parsed
             else:
                 result = ReviewOut(sufficient=False, reason="审查模型不可用，无法确认充分性")
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "evidence_review_failed run=%s error_type=%s status=%s",
+                state["run_id"], type(exc).__name__, getattr(exc, "status_code", None),
+            )
             result = ReviewOut(sufficient=False, reason="审查服务不可用")
     else:
         result = ReviewOut(sufficient=False, reason="审查模型不可用，无法确认充分性")
@@ -100,7 +104,7 @@ async def review(state: AgentState, config: Any | None = None) -> dict[str, Any]
             retrieval = state.get("retrieval", {})
             if retrieval.get("status") not in {"no_documents", "not_executed"} and (
                 retrieval.get("status") != "unavailable"
-                or retrieval.get("reason") == "retrieval_error"
+                or retrieval.get("reason") in {"retrieval_error", "database_error"}
             ):
                 selected = next((s for s in plan["steps"] if s["kind"] == "retrieve"), None)
         else:

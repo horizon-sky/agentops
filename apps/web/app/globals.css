@@ -144,6 +144,14 @@ body:has(.workbench) {
 .reply-code { overflow: hidden; border: 1px solid #3a403a; border-radius: 8px; background: #191c19; }
 .reply-code-label { border-bottom: 1px solid #343b34; padding: 6px 12px; font-size: 11px; color: var(--bench-muted); }
 .reply-code pre { overflow-x: auto; padding: 14px; font-size: 12px; line-height: 1.7; white-space: pre; }
+.reply-table-scroll { max-width: 100%; overflow-x: auto; border: 1px solid #3a403a; border-radius: 8px; }
+.reply-table-scroll:focus-visible { outline: 2px solid #b6cdbf; outline-offset: 3px; }
+.reply-table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.8; }
+.reply-table th, .reply-table td { min-width: 120px; padding: 10px 14px; vertical-align: top; border-bottom: 1px solid #343b34; }
+.reply-table th { background: #292e29; color: #eef1ec; font-weight: 600; }
+.reply-table th + th, .reply-table td + td { border-left: 1px solid #343b34; }
+.reply-table tbody tr:nth-child(even) { background: #242824; }
+.reply-table tbody tr:last-child td { border-bottom: 0; }
 .reply-citation { display: inline; margin: 0 3px; padding: 0 4px; border-radius: 3px; background: #344038; color: #c4dacd; font-size: 11px; overflow-wrap: anywhere; }
 .reply-footer { margin-top: 20px; font-size: 11px; color: var(--bench-muted); }
 .reply-footer button:hover { color: var(--bench-text); }

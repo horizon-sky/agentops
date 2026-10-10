@@ -31,7 +31,7 @@ function initialSteps(): TimelineStep[] {
   }));
 }
 
-function evidenceStages(steps: TimelineStep[], plan: ExecutionPlan): TimelineStep[] {
+function evidenceStages(steps: TimelineStep[], plan: ExecutionPlan, retrieval?: RetrievalDiagnostic): TimelineStep[] {
   return steps.map(step => {
     if (step.stage !== "tools" && step.stage !== "retrieve") return step;
     const planned = plan.steps.filter(item => item.kind === (step.stage === "tools" ? "tool" : "retrieve"));
@@ -45,6 +45,10 @@ function evidenceStages(steps: TimelineStep[], plan: ExecutionPlan): TimelineSte
       return { ...step, status: "pending", detail: "等待执行" };
     }
     const failed = planned.some(item => item.status === "failed" || item.status === "denied");
+    if (step.stage === "retrieve") {
+      return { ...step, status: failed ? "error" : "done", detail: retrieval
+        ? retrievalMessage(retrieval) : step.detail };
+    }
     return { ...step, status: failed ? "error" : "done", detail: failed ? "部分操作未完成" : "已完成" };
   });
 }
@@ -135,7 +139,7 @@ export function useRun() {
         case "done":
           if (payload.plan) {
             setPlan((payload.plan as ExecutionPlan).steps);
-            setSteps(prev => evidenceStages(prev, payload.plan as ExecutionPlan));
+            setSteps(prev => evidenceStages(prev, payload.plan as ExecutionPlan, payload.retrieval as RetrievalDiagnostic));
           }
           if (payload.retrieval) setRetrieval(payload.retrieval as RetrievalDiagnostic);
           setHitl(null);

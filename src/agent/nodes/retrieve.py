@@ -6,10 +6,12 @@ M4 未就绪或数据库不可用时降级为空结果，并在事件中如实�
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 
 from apps.api.src.schemas.events import AgentEvent
 from src.agent.context import get as ctx_get
@@ -19,6 +21,8 @@ from src.agent.tracing import Timer, TraceRecorder
 from src.config import get_settings
 from src.db.models import Chunk, Document
 from src.db.session import get_session_factory
+
+logger = logging.getLogger("agentops.retrieval")
 
 
 async def retrieve(state: AgentState, config: Any | None = None) -> dict[str, Any]:
@@ -51,15 +55,23 @@ async def retrieve(state: AgentState, config: Any | None = None) -> dict[str, An
                 diagnostic.update(status="no_documents", reason="empty_library")
             else:
                 hits = await hybrid_search(
-                    query, top_k=5, settings=settings, owner_id=owner_id
+                    query, top_k=5, settings=settings, owner_id=owner_id, diagnostics=diagnostic
                 )
                 citations = [hit.model_dump() for hit in hits]
                 diagnostic.update(
                     status="hit" if citations else "no_match",
                     reason="matched" if citations else "no_match",
                 )
-    except Exception:  # noqa: BLE001 - 不在事件中暴露数据库连接串或服务凭据
-        diagnostic.update(status="unavailable", reason="retrieval_error")
+    except Exception as exc:  # noqa: BLE001 - 不在事件中暴露数据库连接串或服务凭据
+        diagnostic.update(
+            status="unavailable",
+            reason="database_error" if isinstance(exc, SQLAlchemyError) else "retrieval_error",
+            error_type=type(exc).__name__,
+        )
+        logger.warning(
+            "retrieval_failed run=%s reason=%s error_type=%s",
+            state.get("run_id", ""), diagnostic["reason"], type(exc).__name__,
+        )
     note = diagnostic["reason"]
     merged = {str(c.get("citation_id") or c.get("chunk_id")): c
               for c in state.get("citations", []) + citations}
@@ -71,9 +83,10 @@ async def retrieve(state: AgentState, config: Any | None = None) -> dict[str, An
         run_id=state.get("run_id", ""),
         stage="retrieve",
         name="hybrid_search",
-        inputs={"query": state["query"][:500]},
+        inputs={"query": query[:500]},
         outputs={"hits": len(citations), "note": note, "retrieval": diagnostic},
         ms=timer.ms,
+        status="error" if diagnostic["status"] == "unavailable" else "ok",
     )
     event: AgentEvent = event_of(
         type="retrieve",

@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
 from typing import Any
 from uuid import UUID
@@ -19,6 +21,17 @@ from src.db.session import get_engine
 
 RRF_K = 60
 CANDIDATES = 20
+logger = logging.getLogger("agentops.retrieval")
+
+
+def _record_degradation(diagnostics: dict[str, Any], stage: str, exc: Exception) -> None:
+    diagnostics["degraded"] = True
+    diagnostics.setdefault("warnings", []).append(f"{stage}_error")
+    diagnostics.setdefault("error_types", {})[stage] = type(exc).__name__
+    logger.warning(
+        "retrieval_degraded stage=%s error_type=%s status=%s",
+        stage, type(exc).__name__, getattr(exc, "status_code", None),
+    )
 
 
 class ChunkHit(BaseModel):
@@ -47,7 +60,9 @@ async def hybrid_search(
     top_k: int = 5,
     settings: Settings | None = None,
     owner_id: str | None = None,
+    diagnostics: dict[str, Any] | None = None,
 ) -> list[ChunkHit]:
+    diagnostics = diagnostics if diagnostics is not None else {}
     if settings is None:
         from src.config import get_settings
 
@@ -67,13 +82,18 @@ async def hybrid_search(
 
     from src.agent.model import build_embedder
 
-    embedder = build_embedder(settings)
     query_vector: list[float] | None = None
-    if embedder is not None:
-        from src.rag.embed import embed_texts
+    try:
+        if build_embedder(settings) is not None:
+            from src.rag.embed import embed_texts
 
-        vectors = await embed_texts([query], settings)
-        query_vector = vectors[0] if vectors else None
+            async with asyncio.timeout(settings.request_timeout_s):
+                vectors = await embed_texts([query], settings)
+            if not vectors or not vectors[0]:
+                raise ValueError("Empty query embedding")
+            query_vector = vectors[0]
+    except Exception as exc:  # noqa: BLE001 - keyword retrieval remains available
+        _record_degradation(diagnostics, "embedding", exc)
 
     vector_sql = """
         SELECT c.id AS citation_id, c.chunk_id, c.content, c.document_id, d.title,
@@ -138,6 +158,7 @@ async def hybrid_search(
         sql = fused_sql
     else:
         sql = keyword_only_sql
+    diagnostics["method"] = "hybrid" if query_vector is not None else "keyword"
 
     async with engine.connect() as conn:
         rows = (await conn.execute(text(sql), params)).mappings().all()
@@ -160,7 +181,12 @@ async def hybrid_search(
 
     from src.rag.rerank import rerank_hits
 
-    return await rerank_hits(query, hits, top_k, settings)
+    try:
+        async with asyncio.timeout(settings.request_timeout_s):
+            return await rerank_hits(query, hits, top_k, settings)
+    except Exception as exc:  # noqa: BLE001 - preserve already retrieved evidence
+        _record_degradation(diagnostics, "rerank", exc)
+        return hits[:top_k]
 
 
 __all__ = ["ChunkHit", "hybrid_search"]

@@ -820,7 +820,9 @@ async def test_retrieval_diagnostics_survive_refresh_and_partial_completion(acco
     assert refreshed["answer"] == "No evidence"
 
 
-@pytest.mark.parametrize("outcome", ["no_documents", "no_match", "hit", "unavailable"])
+@pytest.mark.parametrize("outcome", [
+    "no_documents", "no_match", "hit", "unavailable", "database_error",
+])
 async def test_retrieval_reports_empty_library_matches_and_failure(
     account_app, monkeypatch, outcome
 ):
@@ -851,6 +853,10 @@ async def test_retrieval_reports_empty_library_matches_and_failure(
         calls.append(kwargs["owner_id"])
         if outcome == "unavailable":
             raise RuntimeError("private credentials must not enter events")
+        if outcome == "database_error":
+            from sqlalchemy.exc import SQLAlchemyError
+
+            raise SQLAlchemyError("private credentials must not enter events")
         return (
             [ChunkHit(chunk_id="hash", citation_id=str(uuid.uuid4()))] if outcome == "hit" else []
         )
@@ -864,9 +870,71 @@ async def test_retrieval_reports_empty_library_matches_and_failure(
     bind(user_id=str(user_id), settings=settings, emit=emit)
     try:
         result = await retrieve({"query": "Query", "run_id": str(run_id)})
-        assert result["retrieval"]["status"] == outcome
+        assert result["retrieval"]["status"] == (
+            "unavailable" if outcome == "database_error" else outcome
+        )
+        if outcome == "database_error":
+            assert result["retrieval"]["reason"] == "database_error"
         assert bool(result["citations"]) == (outcome == "hit")
         assert calls == ([] if outcome == "no_documents" else [str(user_id)])
         assert "private credentials" not in str(events)
+    finally:
+        bind(user_id="", emit=None)
+
+
+async def test_new_sessions_reuse_account_library_without_cross_account_access(
+    account_app, monkeypatch
+):
+    import importlib
+
+    from src.agent.context import bind
+    from src.agent.nodes.retrieve import retrieve
+    from src.rag.hybrid_search import ChunkHit
+
+    client, factory, mail, settings = account_app
+    alice = await signed_in(client, mail)
+    bob = await signed_in(client, mail, "bob@example.com")
+    alice_id = uuid.UUID((await client.get("/auth/session", headers=alice)).json()["user"]["id"])
+    bob_id = uuid.UUID((await client.get("/auth/session", headers=bob)).json()["user"]["id"])
+    async with factory() as db:
+        doc = Document(owner_id=alice_id, title="500排查手册")
+        db.add(doc)
+        await db.flush()
+        chunk = Chunk(document_id=doc.id, chunk_id="manual", content="500属于服务内部问题")
+        db.add(chunk)
+        await db.commit()
+        citation_id = str(chunk.id)
+    monkeypatch.setattr(
+        importlib.import_module("src.agent.nodes.retrieve"),
+        "get_session_factory", lambda _: factory,
+    )
+    owners = []
+
+    async def search(query, **kwargs):
+        owners.append(kwargs["owner_id"])
+        assert kwargs["owner_id"] == str(alice_id)
+        return [ChunkHit(chunk_id="manual", citation_id=citation_id, snippet="500属于服务内部问题")]
+
+    monkeypatch.setattr("src.rag.hybrid_search.hybrid_search", search)
+
+    async def emit(event):
+        pass
+
+    try:
+        for headers, user_id in [(alice, alice_id), (alice, alice_id), (bob, bob_id)]:
+            session = (await client.post(
+                "/sessions", headers=headers, json={"title": "新会话"},
+            )).json()
+            bind(user_id=str(user_id), settings=settings, emit=emit)
+            result = await retrieve({
+                "query": "接口500错误", "run_id": str(uuid.uuid4()), "session_id": session["id"]
+            })
+            assert result["retrieval"]["status"] == (
+                "hit" if user_id == alice_id else "no_documents"
+            )
+            assert [c["citation_id"] for c in result["citations"]] == (
+                [citation_id] if user_id == alice_id else []
+            )
+        assert owners == [str(alice_id), str(alice_id)]
     finally:
         bind(user_id="", emit=None)

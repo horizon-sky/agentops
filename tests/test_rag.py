@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+
 from src.rag.chunk import chunk_text
 from src.rag.context import build_context
 from src.rag.hybrid_search import ChunkHit
@@ -131,3 +136,51 @@ async def test_rerank_uses_scores_without_mutating_hits(monkeypatch) -> None:
         ("b", 0.9, "hybrid+rerank")
     ]
     assert hits[1].score == 0.0
+
+
+@pytest.mark.parametrize("failure_stage", ["embedding", "rerank"])
+async def test_optional_model_failure_preserves_keyword_results(monkeypatch, failure_stage) -> None:
+    from src.agent import model
+    from src.config import Settings
+    from src.rag import embed, hybrid_search, rerank
+
+    owner_id, citation_id = str(uuid4()), str(uuid4())
+    searches = []
+
+    class Connection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def execute(self, statement, params):
+            searches.append((str(statement), params))
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [{
+                "citation_id": citation_id, "chunk_id": "hash", "document_id": str(uuid4()),
+                "title": "接口500排查", "source_url": "", "heading": "",
+                "content": "接口500为服务内部问题", "score": 0.016,
+            }]))
+
+    async def unavailable(*args, **kwargs):
+        raise TimeoutError("private credentials must never enter diagnostics")
+
+    monkeypatch.setattr(hybrid_search, "get_engine", lambda _: SimpleNamespace(connect=Connection))
+    monkeypatch.setattr(model, "build_embedder", lambda _: object() if failure_stage == "embedding"
+                        else None)
+    monkeypatch.setattr(embed, "embed_texts", unavailable)
+    if failure_stage == "rerank":
+        monkeypatch.setattr(rerank, "build_reranker", lambda _: SimpleNamespace(arank=unavailable))
+    diagnosis = {}
+    hits = await hybrid_search.hybrid_search(
+        "现在接口500错误了", settings=Settings(_env_file=None), owner_id=owner_id,
+        diagnostics=diagnosis,
+    )
+    assert hits[0].citation_id == citation_id
+    assert hits[0].retrieval_method == "keyword"
+    assert searches[0][1]["owner_id"] == owner_id
+    assert "d.owner_id = CAST(:owner_id AS uuid)" in searches[0][0]
+    assert "qv" not in searches[0][1]
+    assert diagnosis["degraded"] is True
+    assert diagnosis["warnings"] == [f"{failure_stage}_error"]
+    assert "private credentials" not in str(diagnosis)
