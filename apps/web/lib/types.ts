@@ -66,6 +66,20 @@ export interface ChunkPreview {
   content: string;
 }
 
+export interface KnowledgeDocument {
+  id: string;
+  title: string;
+  source: string;
+  version: string;
+  created_at?: string | null;
+  chunks: number;
+  embedded: number;
+}
+
+export interface KnowledgeDocumentDetail extends KnowledgeDocument {
+  content: string;
+}
+
 export interface ToolResultPayload {
   name: string;
   step_id?: string;

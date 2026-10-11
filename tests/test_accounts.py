@@ -785,6 +785,57 @@ async def test_chunk_preview_uses_uuid_and_enforces_document_owner(account_app):
     assert other.json()["title"] == "Second"
 
 
+async def test_document_library_lists_edits_and_deletes_only_owned_data(account_app, monkeypatch):
+    client, factory, mail, settings = account_app
+    alice = await signed_in(client, mail)
+    bob = await signed_in(client, mail, "bob@example.com")
+    alice_id = uuid.UUID((await client.get("/auth/session", headers=alice)).json()["user"]["id"])
+    bob_id = uuid.UUID((await client.get("/auth/session", headers=bob)).json()["user"]["id"])
+    async with factory() as db:
+        first = Document(title="First", source="manual.md", version="v2", owner_id=alice_id)
+        other = Document(title="Other", owner_id=bob_id)
+        db.add_all([first, other])
+        await db.flush()
+        db.add_all([
+            Chunk(document_id=first.id, chunk_id="one", seq=0, content="第一段"),
+            Chunk(document_id=first.id, chunk_id="two", seq=1, content="第二段"),
+            Chunk(document_id=other.id, chunk_id="other", content="Bob 内容"),
+        ])
+        await db.commit()
+
+    listed = await client.get("/documents", headers=alice)
+    assert listed.status_code == 200
+    assert len(listed.json()) == 1
+    assert listed.json()[0]["chunks"] == 2
+    detail = await client.get(f"/documents/{first.id}", headers=alice)
+    assert detail.status_code == 200
+    assert detail.json()["content"] == "第一段\n\n第二段"
+    assert (await client.get(f"/documents/{first.id}", headers=bob)).status_code == 404
+
+    captured = {}
+
+    async def rebuild(**kwargs):
+        captured.update(kwargs)
+        return first.id, 1, 0
+
+    monkeypatch.setattr("src.rag.ingest.update_document", rebuild)
+    settings.database_url = "configured"
+    updated = await client.patch(
+        f"/documents/{first.id}",
+        headers=alice,
+        json={"title": "Updated", "source": "new.md", "content": "新内容", "version": "v3"},
+    )
+    assert updated.status_code == 200
+    assert captured["owner_id"] == alice_id
+    assert updated.json()["title"] == "First"
+
+    assert (await client.delete(f"/documents/{first.id}", headers=bob)).status_code == 404
+    assert (await client.delete(f"/documents/{first.id}", headers=alice)).status_code == 204
+    async with factory() as db:
+        assert await db.get(Document, first.id) is None
+        assert list(await db.scalars(select(Chunk).where(Chunk.document_id == first.id))) == []
+
+
 async def test_retrieval_diagnostics_survive_refresh_and_partial_completion(account_app):
     client, factory, mail, settings = account_app
     headers = await signed_in(client, mail)

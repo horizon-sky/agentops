@@ -67,6 +67,27 @@ class IngestOut(BaseModel):
     embedded: int = 0
 
 
+class DocumentOut(BaseModel):
+    id: UUID
+    title: str
+    source: str
+    version: str
+    created_at: datetime | None = None
+    chunks: int = 0
+    embedded: int = 0
+
+
+class DocumentDetailOut(DocumentOut):
+    content: str = ""
+
+
+class DocumentUpdateIn(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    source: str = Field(default="", max_length=500)
+    content: str = Field(min_length=1, max_length=1_000_000)
+    version: str = Field(default="v1", max_length=64)
+
+
 class TraceNode(BaseModel):
     id: UUID
     stage: str

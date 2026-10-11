@@ -9,6 +9,8 @@ import type {
   Ticket,
   TicketPage,
   ChunkPreview,
+  KnowledgeDocument,
+  KnowledgeDocumentDetail,
 } from "./types";
 import { loginRequired } from "./auth";
 
@@ -25,6 +27,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const detail = await response.text();
     throw new Error(`${response.status} ${detail.slice(0, 200)}`);
   }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -93,8 +96,31 @@ export function ingestDocument(payload: {
   title: string;
   source: string;
   content: string;
+  version?: string;
 }): Promise<{ document_id: string; chunks: number; embedded: number }> {
   return request("/ingest", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function listDocuments(): Promise<KnowledgeDocument[]> {
+  return request<KnowledgeDocument[]>("/documents");
+}
+
+export function fetchDocument(documentId: string): Promise<KnowledgeDocumentDetail> {
+  return request<KnowledgeDocumentDetail>(`/documents/${encodeURIComponent(documentId)}`);
+}
+
+export function updateDocument(
+  documentId: string,
+  payload: Pick<KnowledgeDocumentDetail, "title" | "source" | "version" | "content">,
+): Promise<KnowledgeDocument> {
+  return request<KnowledgeDocument>(`/documents/${encodeURIComponent(documentId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteDocument(documentId: string): Promise<void> {
+  return request<void>(`/documents/${encodeURIComponent(documentId)}`, { method: "DELETE" });
 }
 
 export function fetchChunk(documentId: string, citationId: string): Promise<ChunkPreview> {

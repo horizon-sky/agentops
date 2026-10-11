@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 import uuid
 
-from sqlalchemy import text
+from sqlalchemy import delete, select, text
 
 from src.config import Settings
-from src.db.models import Document
+from src.db.models import Chunk, Document
 from src.db.session import get_session_factory
 from src.rag.chunk import chunk_text
 from src.rag.embed import embed_texts
@@ -68,6 +68,59 @@ async def ingest_document(
         session.add(document)
         await session.flush()
 
+        for chunk, vector in zip(chunks, vectors, strict=False):
+            await session.execute(
+                text(INSERT_CHUNK_SQL),
+                {
+                    "document_id": str(document.id),
+                    "chunk_id": chunk["chunk_id"],
+                    "seq": chunk["seq"],
+                    "content": chunk["content"],
+                    "token_count": chunk["token_count"],
+                    "embedding": _vector_literal(vector),
+                    "meta": json.dumps(
+                        {"heading": chunk["heading"], "version": version}, ensure_ascii=False
+                    ),
+                },
+            )
+        await session.execute(text(UPDATE_TSV_SQL), {"document_id": str(document.id)})
+        await session.commit()
+        return document.id, len(chunks), embedded
+
+
+async def update_document(
+    *,
+    document_id: uuid.UUID,
+    title: str,
+    source: str,
+    content: str,
+    version: str,
+    settings: Settings,
+    owner_id: uuid.UUID,
+) -> tuple[uuid.UUID, int, int]:
+    """替换文档正文并重建 chunks，返回 (document_id, 切分数量, 向量化数量)。"""
+    factory = get_session_factory(settings)
+    if factory is None:
+        raise RuntimeError("未配置 DATABASE_URL，无法更新")
+
+    clean_text = parse_text(content)
+    chunks = chunk_text(clean_text)
+    if not chunks:
+        raise ValueError("文档内容为空或解析后无有效文本")
+
+    vectors = await embed_texts([str(chunk["content"]) for chunk in chunks], settings)
+    embedded = sum(1 for vector in vectors if vector)
+
+    async with factory() as session:
+        document = await session.scalar(
+            select(Document).where(Document.id == document_id, Document.owner_id == owner_id)
+        )
+        if document is None:
+            raise LookupError("文档不存在")
+        document.title = title
+        document.source = source
+        document.version = version
+        await session.execute(delete(Chunk).where(Chunk.document_id == document.id))
         for chunk, vector in zip(chunks, vectors, strict=False):
             await session.execute(
                 text(INSERT_CHUNK_SQL),
