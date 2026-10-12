@@ -23,7 +23,7 @@ export async function currentUser(): Promise<AuthUser | null> {
 
 const ACTIONS = new Set([
   "register", "login", "logout", "verify-email", "resend-verification",
-  "forgot-password", "reset-password",
+  "forgot-password", "reset-password", "captcha",
 ]);
 
 export async function handleAuth(request: Request, action: string): Promise<NextResponse> {

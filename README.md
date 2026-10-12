@@ -41,7 +41,7 @@ stateDiagram-v2
 
 | 能力 | 实现要点 |
 | --- | --- |
-| 用户账号 | 邮箱公开注册、验证与密码找回；Argon2id 密码、HttpOnly Cookie、可撤销会话；会话/运行/文档与检索按用户隔离 |
+| 用户账号 | 邮箱密码与图片验证码注册、邮件密码找回；Argon2id 密码、HttpOnly Cookie、可撤销会话；会话/运行/文档与检索按用户隔离 |
 | 有状态编排 | LangGraph StateGraph 六节点；检查点持久化（Postgres，无库时内存兜底）；中断可恢复 |
 | 工具层 | 5 个工具统一 Pydantic Schema；风险分级 read / write / high；超时重试、幂等键；3 个同时以 MCP Server 提供 |
 | 人机协同（HITL） | 写类工具 `interrupt` 挂起，前端审批卡确认/改参后 `resume` 从检查点继续 |
@@ -61,7 +61,7 @@ stateDiagram-v2
 # 1. 环境与依赖（Windows / Git Bash）
 bash scripts/bootstrap.sh
 
-# 2. 配置 .env：DATABASE_URL、WEB_ORIGIN、RESEND_API_KEY、MAIL_FROM
+# 2. 配置 .env：DATABASE_URL；邮件找回另需 WEB_ORIGIN、RESEND_API_KEY、MAIL_FROM
 # API_TOKEN 供前后端服务端共享；AGENT_MODE=graph 执行真实检索与审批建单
 # echo 仅演示事件链路，不产生引用或工单；模型 Key 可选
 cp .env.example .env
@@ -85,9 +85,11 @@ uv run python -m scripts.evaluate_isolated --limit 5
 # 完整发布与真实模型验收流程见 docs/evaluation-release.md
 ```
 
-打开 `/register` 自行注册，收到邮件后点击链接并确认验证，再到 `/login` 登录。
-Resend 需要配置已验证的发件域名；邮件未配置或发送失败返回 503，不会模拟成功。
-密码至少 12 位，验证/重置链接有效期 30 分钟；登录默认 1 小时，退出或重置密码后会话撤销。
+打开 `/register` 填写账号资料和图片验证码，注册成功后到 `/login` 登录，无需接收邮件。
+验证码为 5 位字符，不区分大小写，5 分钟有效，每张仅可尝试一次；输错后刷新重试。
+旧的未验证账号也可直接登录；图片验证码不会将邮箱标记为已验证。
+密码找回仍需邮件确认邮箱归属：Resend 需要配置已验证的发件域名；未配置或发送失败返回 503。
+密码至少 12 位，旧验证/重置链接有效期 30 分钟；登录默认 1 小时，退出或重置密码后会话撤销。
 管理员授权、历史数据归属与上线验收见 [部署说明](docs/deploy.md)。
 
 登录工作台后，展开“入库参考文档”，填写标题、来源与正文。入库成功后重新提问，
@@ -105,9 +107,10 @@ Resend 需要配置已验证的发件域名；邮件未配置或发送失败返�
 ## 接口
 
 ```text
-POST   /auth/register             公开注册并发送验证邮件
-POST   /auth/resend-verification  重发验证邮件
-POST   /auth/verify-email         消费一次性邮箱验证令牌
+POST   /auth/captcha              获取一次性图片验证码（禁止缓存）
+POST   /auth/register             校验图片验证码并注册，成功 201，重复邮箱 409
+POST   /auth/resend-verification  已关闭，返回 410
+POST   /auth/verify-email         消费仍有效的旧邮箱验证令牌
 POST   /auth/login                邮箱密码登录
 GET    /auth/session              当前用户
 POST   /auth/logout               撤销当前登录会话
@@ -129,7 +132,7 @@ GET    /eval/report              最近一次评测报告
 GET    /healthz                  健康检查（Railway 探活）
 ```
 
-除健康检查与注册/登录/邮件入口外，接口需要个人身份；评测报告需要管理员权限。
+除健康检查与验证码/注册/登录/邮件入口外，接口需要个人身份；评测报告需要管理员权限。
 评测看板读取数据库中最新已发布汇总报告；执行评测不会自动发布。
 发布命令、同库 schema 隔离及验收步骤见 [评测发布说明](docs/evaluation-release.md)。
 生产环境还需要 `X-API-Token` 服务端代理凭据，由 Next.js 注入，不能用于用户登录。

@@ -6,12 +6,20 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 
+await (await import("./auth.test.cjs")).default;
+
 const user = { id: "test-user", email: "test@example.com", display_name: "Test", role: "member" };
 const token = "mock-personal-token";
 const gateway = "mock-gateway-secret";
 const calls = [];
 let active = true;
 let unavailable = false;
+let captchaFailure = false;
+const captcha = {
+  captcha_id: "62e4e40a-29d1-4d1d-9a25-66dd8a48d205",
+  image_data_url: "data:image/png;base64,iVBORw0KGgo=",
+  expires_at: "2099-01-01T00:00:00Z",
+};
 const backend = createServer(async (req, res) => {
   let body = "";
   for await (const chunk of req) body += chunk;
@@ -25,7 +33,17 @@ const backend = createServer(async (req, res) => {
   if (req.url === "/auth/login") {
     active = true;
     res.end(JSON.stringify({ user, token, expires_in: 3600 }));
-  } else if (["/auth/register", "/auth/resend-verification", "/auth/forgot-password"].includes(req.url)) {
+  } else if (req.url === "/auth/captcha") {
+    if (captchaFailure) res.writeHead(503).end(JSON.stringify({ detail: "Captcha unavailable" }));
+    else res.end(JSON.stringify(captcha));
+  } else if (req.url === "/auth/register") {
+    const payload = JSON.parse(body);
+    if (payload.captcha_answer === "wrong") res.writeHead(400).end(JSON.stringify({ detail: "验证码无效或已过期" }));
+    else if (payload.email === "duplicate@example.com") res.writeHead(409).end(JSON.stringify({ detail: "该邮箱已注册" }));
+    else res.writeHead(201).end(JSON.stringify({ message: "注册成功，请登录" }));
+  } else if (req.url === "/auth/resend-verification") {
+    res.writeHead(410).end(JSON.stringify({ detail: "邮箱验证已停用" }));
+  } else if (req.url === "/auth/forgot-password") {
     res.writeHead(202).end(JSON.stringify({ message: "Check email" }));
   } else if (["/auth/verify-email", "/auth/reset-password"].includes(req.url)) {
     res.end(JSON.stringify({ message: "Confirmed" }));
@@ -107,8 +125,50 @@ try {
   assert.equal(calls.length, 0, "Rejected requests must not reach the backend");
   assert.equal((await post("login", { padding: "a".repeat(9000) })).status, 413);
   assert.equal((await post("unknown-action")).status, 404);
-  assert.equal((await post("register", { email: user.email })).status, 202);
+  const beforeCaptchaRejections = calls.length;
+  for (const extra of [{ Origin: "https://evil.example" }, { "X-AgentOps-CSRF": "" }]) {
+    const rejected = await post("captcha", {}, undefined, extra);
+    assert.equal(rejected.status, 403, "Captcha issuance requires origin and CSRF checks");
+    assert.equal(rejected.headers.get("cache-control"), "no-store");
+  }
+  assert.equal(calls.length, beforeCaptchaRejections, "Rejected captcha requests must not reach the backend");
+  const issuedCaptcha = await post("captcha", {}, undefined, {
+    Authorization: "Bearer attacker", "X-API-Token": "attacker",
+  });
+  assert.equal(issuedCaptcha.status, 200, "Unauthenticated visitors can obtain captcha");
+  assert.deepEqual(await issuedCaptcha.json(), captcha);
+  assert.equal(issuedCaptcha.headers.get("cache-control"), "no-store");
+  assert.equal(issuedCaptcha.headers.getSetCookie().length, 0);
+  assert.equal(calls.at(-1).headers.authorization, undefined);
+  assert.equal(calls.at(-1).headers["x-api-token"], gateway);
+  assert.deepEqual(JSON.parse(calls.at(-1).body), {});
+  captchaFailure = true;
+  const failedCaptcha = await post("captcha");
+  assert.equal(failedCaptcha.status, 503);
+  assert.deepEqual(await failedCaptcha.json(), { detail: "Captcha unavailable" });
+  assert.equal(failedCaptcha.headers.get("cache-control"), "no-store");
+  captchaFailure = false;
+  const registration = {
+    email: user.email, password: "mock-password", display_name: "Test",
+    captcha_id: captcha.captcha_id, captcha_answer: "aB234",
+  };
+  for (const [payload, status, expected] of [
+    [registration, 201, { message: "注册成功，请登录" }],
+    [{ ...registration, captcha_answer: "wrong" }, 400, { detail: "验证码无效或已过期" }],
+    [{ ...registration, email: "duplicate@example.com" }, 409, { detail: "该邮箱已注册" }],
+  ]) {
+    const response = await post("register", payload);
+    assert.equal(response.status, status);
+    assert.deepEqual(await response.json(), expected);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(response.headers.getSetCookie().length, 0, "Registration must not log in");
+    assert.deepEqual(JSON.parse(calls.at(-1).body), payload, "Captcha and account fields reach backend unchanged");
+  }
   assert.equal((await post("verify-email", { token: "mail-token" })).status, 200);
+  const retiredResend = await post("resend-verification", { email: user.email });
+  assert.equal(retiredResend.status, 410);
+  assert.deepEqual(await retiredResend.json(), { detail: "邮箱验证已停用" });
+  assert.equal(retiredResend.headers.get("cache-control"), "no-store");
   const login = await post("login", { email: user.email, password: "mock-password" });
   assert.equal(login.status, 200);
   const json = await login.text();
@@ -185,7 +245,7 @@ try {
   assert.equal(expired.status, 401);
   assert.ok(expired.headers.getSetCookie().some((value) => value.startsWith("agentops_session=;")));
   assert.equal((await post("logout", {}, cookie)).status, 200, "Expired logout must still clear cookies");
-  console.log("PASS: protected pages, email endpoints, CSRF, private cookies, ticket pagination/edit/archive, ingestion, source preview, identity and logout");
+  console.log("PASS: protected pages, captcha issuance, registration status/body/errors/cache, email endpoints, CSRF, private cookies, ticket pagination/edit/archive, ingestion, source preview, identity and logout");
 } finally {
   child.kill();
   if (child.exitCode === null && child.signalCode === null) {

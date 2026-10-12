@@ -71,7 +71,6 @@ async def lookup_session(db: AsyncSession, token: str) -> tuple[User, AuthSessio
             AuthSession.expires_at > datetime.now(UTC),
             AuthSession.revoked_at.is_(None),
             User.is_active.is_(True),
-            User.verified_at.is_not(None),
         )
         .execution_options(populate_existing=True)
     )

@@ -98,6 +98,7 @@ async def make_admin(client, factory, mail):
     async with factory() as db:
         user = await db.scalar(select(User))
         user.role = "admin"
+        user.verified_at = datetime.now(UTC)
         await db.commit()
         email = user.email
     return headers, email

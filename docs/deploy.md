@@ -61,8 +61,8 @@ python scripts/init_db.py
 | --- | --- | --- |
 | `DATABASE_URL` | Neon 连接串（pooled，asyncpg 驱动） | 是 |
 | `APP_ENV` | Railway 设为 `production`，缺数据库或代理凭据时拒绝启动 | 是 |
-| `WEB_ORIGIN` | 邮件链接对应的前端来源，如 `https://agentops.example.com` | 是 |
-| `RESEND_API_KEY` / `MAIL_FROM` | Resend 凭据与已验证域名发件地址，如 `AgentOps <account@example.com>` | 是 |
+| `WEB_ORIGIN` | 邮件链接对应的前端来源，如 `https://agentops.example.com` | 邮件找回必填 |
+| `RESEND_API_KEY` / `MAIL_FROM` | Resend 凭据与已验证域名发件地址，如 `AgentOps <account@example.com>` | 邮件找回必填；注册不依赖邮件 |
 | `AUTH_SESSION_HOURS` | 登录有效期，默认 1 小时，上限 24 小时 | 否 |
 | `MAX_ACTIVE_RUNS_PER_USER` / `MAX_RUNS_PER_USER_PER_DAY` | 默认同时运行/待审批 2 个、UTC 每天 50 次 | 否 |
 | `MAX_INGESTS_PER_USER_PER_DAY` | 默认 24 小时内上传 20 次（进程内限流） | 否 |
@@ -79,16 +79,20 @@ python scripts/init_db.py
 ## 5. 上线后冒烟顺序
 
 1. `GET /healthz` → `db.connected = true`；在独立 staging 数据库验证迁移与旧数据归档。
-2. 浏览器注册两个账号，确认收到真实邮件；验证前登录 403，点击确认后可登录；重复/过期链接拒绝。
+2. 浏览器通过图片验证码注册两个账号，确认无需邮件即可登录；旧未验证账号也可登录。错误、过期和重复使用验证码返回 400，重复邮箱返回 409；验证码加载失败可重试。另验证真实密码找回邮件及重复/过期链接拒绝。
 3. 检查登录响应不含个人令牌或代理凭据，Cookie 为 `HttpOnly; Secure; SameSite=Lax`；伪造来源或缺少 `X-AgentOps-CSRF: 1` 的写请求返回 403。
 4. 登录后创建会话，通过工作台入库表单上传私有文档，在 `graph` 模式提问；答案引用定位原文，刷新保留引用与检索诊断。另一账号不能命中或预览该文档，访问会话、运行、审批、追踪返回空列表或 404。无 Embedding 时单独验证中文关键词召回。
 5. `AGENT_MODE=graph` 触发建单；未确认/拒绝不落库，确认后工单总览出现一条记录。验证编辑、刷新、归档及重复恢复不重复建单；另一账号不能查看或修改该工单，也不能恢复该任务。
 6. 退出、密码重置或禁用账号后旧会话返回 401，已连接 SSE 最迟约 15 秒重新检查身份并关闭；使用新密码重新登录。
 7. 普通账号评测接口 403，管理员可访问；核对限流与任务额度 429，不将无模型离线结果作为真实联调结果。
 
-Railway 与 Vercel 配置相同 `API_TOKEN`，禁止使用 `NEXT_PUBLIC_API_TOKEN`。浏览器使用邮箱密码登录，个人会话令牌只存 HttpOnly Cookie，Next.js 向 Railway 注入个人 Bearer token 和代理凭据。注册、重发与找回返回统一提示；发信失败 503 并回滚事务。验证/重置链接 30 分钟有效，重发会使旧链接失效，密码重置撤销所有会话。Preview 应使用独立数据库、邮件配置和对应 `WEB_ORIGIN`。
+Railway 与 Vercel 配置相同 `API_TOKEN`，禁止使用 `NEXT_PUBLIC_API_TOKEN`。浏览器使用邮箱密码登录，个人会话令牌只存 HttpOnly Cookie，Next.js 向 Railway 注入个人 Bearer token 和代理凭据。注册不发邮件、不自动登录；`verified_at` 仅记录真实邮箱验证。密码找回对启用账号提供统一提示，发信失败返回 503 并回滚令牌事务；重置链接 30 分钟有效，重置成功验证邮箱归属并撤销所有会话。旧验证链接仍可使用，重发验证邮件接口返回 410。Preview 应使用独立数据库、邮件配置和对应 `WEB_ORIGIN`。
 
-首位管理员先正常注册并验证邮箱，再在受控环境执行：
+验证码使用现有 Postgres 的 `auth_captchas` 表保存 UUID、答案摘要及过期时间；图片不含答案文本元数据。验证码消费独立提交，错误答案、过期或后续注册失败都不会恢复挑战。每 IP 每 10 分钟最多签发 30 次、注册 20 次，每邮箱注册 10 次，另沿用认证总限流；超限返回 429。限流仍为进程内单副本实现。
+
+本次发布先迁移到 `0008_auth_captchas`，再部署后端和前端。回滚仅回滚应用，保留新增表；旧版本恢复邮箱验证门槛后，新注册但未验证的账号将不能登录。
+
+首位管理员先正常注册，再通过邮件密码找回完成邮箱归属验证（已有真实验证记录的账号无需重复），随后在受控环境执行。图片验证码不能满足管理员管理与评测发布命令的已验证账号要求：
 
 ```bash
 uv run python -m scripts.manage_users --email admin@example.com --role admin

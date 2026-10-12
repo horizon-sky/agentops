@@ -34,7 +34,7 @@ async def persist_ticket(
     # The same lock serializes concurrent creates for a user, including retries.
     owner = await db.scalar(
         select(User)
-        .where(User.id == owner_id, User.is_active.is_(True), User.verified_at.is_not(None))
+        .where(User.id == owner_id, User.is_active.is_(True))
         .with_for_update()
     )
     run = await db.scalar(
@@ -44,7 +44,7 @@ async def persist_ticket(
         .with_for_update(of=Run)
     )
     if owner is None or run is None:
-        raise PermissionError("Ticket creation requires an owned run and verified user")
+        raise PermissionError("Ticket creation requires an owned run and active user")
     if run.status == "aborted":
         raise PermissionError("Run was aborted; ticket creation cancelled")
     ticket = await db.scalar(

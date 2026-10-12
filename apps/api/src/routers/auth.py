@@ -1,11 +1,12 @@
-"""Public signup, email verification, revocable login and password recovery."""
+"""Image-challenge signup, legacy email verification and revocable account sessions."""
 
 from __future__ import annotations
 
 import secrets
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -27,6 +28,7 @@ from src.auth import (
     token_digest,
     verify_password,
 )
+from src.captcha import consume_captcha, issue_captcha
 from src.config import Settings
 from src.db.models import AuthSession, AuthToken, User
 
@@ -51,6 +53,8 @@ class LoginIn(EmailIn):
 class RegisterIn(LoginIn):
     password: str = Field(min_length=12, max_length=128)
     display_name: str = Field(min_length=1, max_length=80)
+    captcha_id: UUID
+    captcha_answer: str = Field(min_length=1, max_length=5, pattern=r"^[A-Za-z0-9]+$")
 
     @field_validator("display_name")
     @classmethod
@@ -81,51 +85,62 @@ def user_payload(user: User) -> dict[str, str]:
 
 def throttle(request: Request, settings: Settings, action: str, email: str = "") -> None:
     rate_limit(f"auth:{client_ip(request, settings)}", 100)
+    if action in {"captcha", "register"}:
+        rate_limit(
+            f"auth:{action}:ip:{client_ip(request, settings)}", 30 if action == "captcha" else 20,
+        )
     if email:
         rate_limit(f"auth:{action}:{email}", 5 if action == "mail" else 10)
 
 
-@router.post("/register", status_code=202)
+@router.post("/captcha")
+async def captcha(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(auth_db),
+    settings: Settings = Depends(settings_dep),
+):
+    throttle(request, settings, "captcha")
+    response.headers["Cache-Control"] = "no-store"
+    return await issue_captcha(db)
+
+
+@router.post("/register", status_code=201)
 async def register(
     payload: RegisterIn,
     request: Request,
     db: AsyncSession = Depends(auth_db),
     settings: Settings = Depends(settings_dep),
 ):
-    throttle(request, settings, "mail", payload.email)
+    throttle(request, settings, "register", payload.email)
+    await consume_captcha(db, payload.captcha_id, payload.captcha_answer)
     user = await db.scalar(select(User).where(User.email == payload.email))
-    if user is None:
-        user = User(
-            email=payload.email,
-            password_hash=await hash_password(payload.password),
-            display_name=payload.display_name,
-        )
-        db.add(user)
-        try:
-            await db.flush()
-        except IntegrityError:
-            # A concurrent signup won the unique-email constraint.
-            await db.rollback()
-            return {"message": MAIL_MESSAGE}
-    if user.is_active and user.verified_at is None:
-        await issue_mail_token(db, user, "verify", settings)
+    duplicate_message = "该邮箱已注册，请登录或找回密码"
+    if user is not None:
+        raise HTTPException(409, duplicate_message)
+    db.add(User(
+        email=payload.email,
+        password_hash=await hash_password(payload.password),
+        display_name=payload.display_name,
+    ))
+    try:
         await db.commit()
-    return {"message": MAIL_MESSAGE}
+    except IntegrityError:
+        await db.rollback()
+        if await db.scalar(select(User.id).where(User.email == payload.email)) is not None:
+            raise HTTPException(409, duplicate_message) from None
+        raise
+    return {"message": "注册成功，请登录"}
 
 
-@router.post("/resend-verification", status_code=202)
+@router.post("/resend-verification")
 async def resend_verification(
     payload: EmailIn,
     request: Request,
-    db: AsyncSession = Depends(auth_db),
     settings: Settings = Depends(settings_dep),
 ):
     throttle(request, settings, "mail", payload.email)
-    user = await db.scalar(select(User).where(User.email == payload.email))
-    if user and user.is_active and user.verified_at is None:
-        await issue_mail_token(db, user, "verify", settings)
-        await db.commit()
-    return {"message": MAIL_MESSAGE}
+    raise HTTPException(410, "注册已改用图片验证码，无需验证邮箱，请直接登录")
 
 
 @router.post("/verify-email")
@@ -154,8 +169,6 @@ async def login(
     valid = await verify_password(payload.password, user.password_hash if user else None)
     if not user or not valid or not user.is_active:
         raise HTTPException(401, "邮箱或密码错误")
-    if user.verified_at is None:
-        raise HTTPException(403, "请先验证邮箱", headers={"X-Auth-Reason": "email_unverified"})
     token = secrets.token_urlsafe(32)
     ttl_seconds = max(1, min(settings.auth_session_hours, 24)) * 3600
     db.add(
@@ -190,7 +203,7 @@ async def forgot_password(
 ):
     throttle(request, settings, "mail", payload.email)
     user = await db.scalar(select(User).where(User.email == payload.email))
-    if user and user.is_active and user.verified_at is not None:
+    if user and user.is_active:
         await issue_mail_token(db, user, "reset", settings)
         await db.commit()
     return {"message": MAIL_MESSAGE}
@@ -207,6 +220,8 @@ async def reset_password(
     user = await consume_mail_token(db, payload.token, "reset")
     user.password_hash = await hash_password(payload.password)
     now = datetime.now(UTC)
+    if user.verified_at is None:
+        user.verified_at = now
     await db.execute(
         update(AuthSession).where(AuthSession.user_id == user.id).values(revoked_at=now)
     )

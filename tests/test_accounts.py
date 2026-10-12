@@ -21,6 +21,7 @@ from apps.api.src.sse import bus
 from src.auth import _attempts, token_digest
 from src.config import Settings
 from src.db.models import (
+    AuthCaptcha,
     AuthSession,
     AuthToken,
     Base,
@@ -61,6 +62,7 @@ async def account_app(tmp_path, monkeypatch):
                         User,
                         AuthSession,
                         AuthToken,
+                        AuthCaptcha,
                         Session,
                         Run,
                         Document,
@@ -89,6 +91,7 @@ async def account_app(tmp_path, monkeypatch):
         mail.append({"email": email, "token": token, "purpose": purpose})
 
     monkeypatch.setattr("src.auth.send_account_email", send)
+    monkeypatch.setattr("secrets.choice", lambda alphabet: alphabet[0])
     _attempts.clear()
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -104,33 +107,32 @@ async def account_app(tmp_path, monkeypatch):
 
 
 async def signup(client, mail, email="alice@example.com"):
+    captcha = (await client.post("/auth/captcha")).json()
     result = await client.post(
         "/auth/register",
         json={
             "email": email,
             "password": PASSWORD,
             "display_name": "Test user",
+            "captcha_id": captcha["captcha_id"],
+            "captcha_answer": "AAAAA",
         },
     )
-    assert result.status_code == 202
-    return mail[-1]["token"]
+    assert result.status_code == 201
 
 
 async def signed_in(client, mail, email="alice@example.com"):
-    token = await signup(client, mail, email)
-    assert (await client.post("/auth/verify-email", json={"token": token})).status_code == 200
+    await signup(client, mail, email)
     result = await client.post("/auth/login", json={"email": email, "password": PASSWORD})
     assert result.status_code == 200
     return {"Authorization": f"Bearer {result.json()['token']}"}
 
 
-async def test_signup_verify_login_logout(account_app):
+async def test_signup_login_logout_without_verifying_email(account_app):
     client, factory, mail, _ = account_app
-    token = await signup(client, mail, "Alice@example.com")
+    await signup(client, mail, "Alice@example.com")
     payload = {"email": "alice@example.com", "password": PASSWORD}
-    assert (await client.post("/auth/login", json=payload)).status_code == 403
-    assert (await client.post("/auth/verify-email", json={"token": token})).status_code == 200
-    assert (await client.post("/auth/verify-email", json={"token": token})).status_code == 400
+    assert mail == []
     response = await client.post("/auth/login", json=payload)
     headers = {"Authorization": f"Bearer {response.json()['token']}"}
     session = await client.get("/auth/session", headers=headers)
@@ -142,6 +144,7 @@ async def test_signup_verify_login_logout(account_app):
         assert stored.token_hash != response.json()["token"]
         user = await db.scalar(select(User))
         assert user.password_hash != PASSWORD
+        assert user.verified_at is None
     assert (await client.post("/auth/logout", headers=headers)).status_code == 200
     assert (await client.get("/auth/session", headers=headers)).status_code == 401
 
@@ -149,16 +152,19 @@ async def test_signup_verify_login_logout(account_app):
 async def test_registration_cannot_change_password_or_assign_admin(account_app):
     client, factory, mail, _ = account_app
     headers = await signed_in(client, mail)
+    captcha = (await client.post("/auth/captcha")).json()
     duplicate = await client.post(
         "/auth/register",
         json={
             "email": "ALICE@example.com",
             "password": "attacker-password",
             "display_name": "Attacker",
+            "captcha_id": captcha["captcha_id"],
+            "captcha_answer": "AAAAA",
         },
     )
-    assert duplicate.status_code == 202
-    assert len(mail) == 1
+    assert duplicate.status_code == 409
+    assert mail == []
     assert (
         await client.post(
             "/auth/login",
@@ -176,6 +182,8 @@ async def test_registration_cannot_change_password_or_assign_admin(account_app):
                 "password": PASSWORD,
                 "display_name": "Bob",
                 "role": "admin",
+                "captcha_id": captcha["captcha_id"],
+                "captcha_answer": "AAAAA",
             },
         )
     ).status_code == 422
@@ -206,6 +214,8 @@ async def test_reset_revokes_all_sessions_and_is_single_use(account_app):
     assert (await client.post("/auth/verify-email", json={"token": token})).status_code == 400
     payload = {"token": token, "password": "new-test-password"}
     assert (await client.post("/auth/reset-password", json=payload)).status_code == 200
+    async with factory() as db:
+        assert (await db.scalar(select(User))).verified_at is not None
     assert (await client.post("/auth/reset-password", json=payload)).status_code == 400
     for headers in (first, second):
         assert (await client.get("/auth/session", headers=headers)).status_code == 401
@@ -217,14 +227,67 @@ async def test_reset_revokes_all_sessions_and_is_single_use(account_app):
     ).status_code == 200
 
 
-async def test_expired_replaced_tokens_and_disabled_accounts(account_app):
+@pytest.mark.parametrize("failure", ["wrong", "expired", "used", "disabled"])
+async def test_invalid_reset_does_not_change_account_or_revoke_sessions(account_app, failure):
     client, factory, mail, _ = account_app
-    old = await signup(client, mail)
-    assert (
-        await client.post("/auth/resend-verification", json={"email": "alice@example.com"})
-    ).status_code == 202
-    assert (await client.post("/auth/verify-email", json={"token": old})).status_code == 400
+    headers = await signed_in(client, mail)
+    assert (await client.post(
+        "/auth/forgot-password", json={"email": "alice@example.com"},
+    )).status_code == 202
     token = mail[-1]["token"]
+    async with factory() as db:
+        user = await db.scalar(select(User))
+        old_hash = user.password_hash
+        if failure == "expired":
+            await db.execute(update(AuthToken).values(
+                expires_at=datetime.now(UTC) - timedelta(seconds=1),
+            ))
+        elif failure == "used":
+            await db.execute(update(AuthToken).values(used_at=datetime.now(UTC)))
+        elif failure == "disabled":
+            user.is_active = False
+        await db.commit()
+    response = await client.post("/auth/reset-password", json={
+        "token": "wrong-token" if failure == "wrong" else token,
+        "password": "replacement-password",
+    })
+    assert response.status_code == 400
+    async with factory() as db:
+        user = await db.scalar(select(User))
+        assert user.password_hash == old_hash
+        assert user.verified_at is None
+        assert (await db.scalar(select(AuthSession))).revoked_at is None
+    if failure != "disabled":
+        assert (await client.get("/auth/session", headers=headers)).status_code == 200
+
+
+async def legacy_verification(factory, email="alice@example.com"):
+    token = uuid.uuid4().hex
+    async with factory() as db:
+        user = await db.scalar(select(User).where(User.email == email))
+        db.add(AuthToken(
+            user_id=user.id, purpose="verify", token_hash=token_digest(token),
+            expires_at=datetime.now(UTC) + timedelta(minutes=30),
+        ))
+        await db.commit()
+    return token
+
+
+async def test_legacy_verification_is_single_use_and_resend_is_gone(account_app):
+    client, factory, mail, _ = account_app
+    await signup(client, mail)
+    token = await legacy_verification(factory)
+    response = await client.post("/auth/resend-verification", json={"email": "alice@example.com"})
+    assert response.status_code == 410
+    assert mail == []
+    assert (await client.post("/auth/verify-email", json={"token": token})).status_code == 200
+    assert (await client.post("/auth/verify-email", json={"token": token})).status_code == 400
+
+
+async def test_expired_tokens_and_disabled_accounts(account_app):
+    client, factory, mail, _ = account_app
+    await signup(client, mail)
+    token = await legacy_verification(factory)
     async with factory() as db:
         await db.execute(
             update(AuthToken).values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
@@ -246,7 +309,7 @@ async def test_expired_replaced_tokens_and_disabled_accounts(account_app):
     ).status_code == 401
 
 
-async def test_mail_failure_does_not_create_a_fake_success(account_app, monkeypatch):
+async def test_mail_failure_does_not_block_registration_but_reset_fails(account_app, monkeypatch):
     from fastapi import HTTPException
 
     client, factory, mail, _ = account_app
@@ -255,17 +318,13 @@ async def test_mail_failure_does_not_create_a_fake_success(account_app, monkeypa
         raise HTTPException(503, "mail unavailable")
 
     monkeypatch.setattr("src.auth.send_account_email", fail)
-    response = await client.post(
-        "/auth/register",
-        json={
-            "email": "alice@example.com",
-            "password": PASSWORD,
-            "display_name": "Alice",
-        },
-    )
+    await signup(client, mail)
+    assert mail == []
+    response = await client.post("/auth/forgot-password", json={"email": "alice@example.com"})
     assert response.status_code == 503
     async with factory() as db:
-        assert await db.scalar(select(User)) is None
+        assert await db.scalar(select(User)) is not None
+        assert await db.scalar(select(AuthToken)) is None
 
 
 async def test_all_run_endpoints_reject_cross_user_access(account_app):
@@ -497,7 +556,8 @@ async def test_database_evaluation_requires_verified_resource_owner(account_app,
         user_id = str(user.id)
     with pytest.raises(ValueError, match="active and verified"):
         await _create_eval_run(str(uuid.uuid4()), "Private evaluation", settings, user_id)
-    await client.post("/auth/verify-email", json={"token": mail[-1]["token"]})
+    token = await legacy_verification(factory)
+    await client.post("/auth/verify-email", json={"token": token})
     run_id = uuid.uuid4()
     await _create_eval_run(str(run_id), "Private evaluation", settings, user_id)
     async with factory() as db:
