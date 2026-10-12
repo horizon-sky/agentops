@@ -80,9 +80,9 @@ cd apps/web && cp .env.example .env.local && pnpm install --frozen-lockfile && p
 uv run python scripts/check_env.py
 uv run pytest -q
 
-# 7. 评测（分批跑，结果写入 evals/report.json）
-# 有数据库时必须指定已验证账号 UUID，仅读取该账号知识库
-uv run python -m evals.runner --limit 40 --user-id <verified-user-uuid>
+# 7. 同库隔离评测（默认离线；本地生成报告，不自动向线上发布）
+uv run python -m scripts.evaluate_isolated --limit 5
+# 完整发布与真实模型验收流程见 docs/evaluation-release.md
 ```
 
 打开 `/register` 自行注册，收到邮件后点击链接并确认验证，再到 `/login` 登录。
@@ -130,6 +130,8 @@ GET    /healthz                  健康检查（Railway 探活）
 ```
 
 除健康检查与注册/登录/邮件入口外，接口需要个人身份；评测报告需要管理员权限。
+评测看板读取数据库中最新已发布汇总报告；执行评测不会自动发布。
+发布命令、同库 schema 隔离及验收步骤见 [评测发布说明](docs/evaluation-release.md)。
 生产环境还需要 `X-API-Token` 服务端代理凭据，由 Next.js 注入，不能用于用户登录。
 
 ## 历史评测结果（离线兜底基线）

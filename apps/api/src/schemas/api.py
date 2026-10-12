@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+from src.eval_report import EvalSource
 
 
 class CreateSessionIn(BaseModel):
@@ -102,7 +104,14 @@ class TraceNode(BaseModel):
 
 
 class EvalReportOut(BaseModel):
+    status: Literal["empty", "ready"] = "empty"
+    id: UUID | None = None
+    started_at: datetime | None = None
     generated_at: datetime | None = None
+    git_sha: str = ""
+    prompt_version: str = ""
+    model_version: str = ""
+    source: EvalSource | None = None
     metrics: dict[str, Any] = Field(default_factory=dict)
     report_path: str = ""
 

@@ -18,8 +18,6 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
     passed = sum(1 for item in results if item["passed"])
     latencies = [float(item["latency_ms"]) for item in results]
     tool_scores = [float(item["tool_accuracy"]) for item in results]
-    tokens = [int(item.get("tokens", 0)) for item in results]
-    cost = [float(item.get("cost_usd", 0.0)) for item in results]
 
     failure_stages: dict[str, int] = {}
     for item in results:
@@ -38,8 +36,8 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "recall_at_5": None,  # 需要标注相关 chunk 后才有意义，未标注时如实置空
         "p50_latency_ms": round(percentile(latencies, 0.5), 0),
         "p95_latency_ms": round(percentile(latencies, 0.95), 0),
-        "avg_tokens": round(sum(tokens) / len(tokens), 1) if tokens else 0.0,
-        "cost_per_task": round(sum(cost) / len(cost), 6) if cost else 0.0,
+        "avg_tokens": None,  # 当前未接入 token usage 计量
+        "cost_per_task": None,  # 当前未接入实际费用计量
         "failure_stages": failure_stages,
     }
 
@@ -53,8 +51,8 @@ def to_markdown(metrics: dict[str, Any]) -> str:
         f"- 工具准确率：{metrics['tool_accuracy']}%",
         f"- Recall@5：{metrics['recall_at_5'] if metrics['recall_at_5'] is not None else '未标注'}",
         f"- 延迟 P50 / P95：{metrics['p50_latency_ms']} ms / {metrics['p95_latency_ms']} ms",
-        f"- 平均 Token：{metrics['avg_tokens']}",
-        f"- 单任务成本：{metrics['cost_per_task']} USD",
+        "- 平均 Token：未测量",
+        "- 单任务成本：未测量",
         "",
         "失败阶段分布：" + (str(metrics["failure_stages"]) if metrics["failure_stages"] else "无"),
         "",

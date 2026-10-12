@@ -31,7 +31,7 @@ jobs:
           version: "0.12.17"
       - run: uv sync --locked --extra dev
       - name: Run golden set
-        run: uv run python -m evals.runner --limit 40
+        run: uv run python -m evals.runner --limit 40 --environment ci
       - name: Regression gate
         run: |
           uv run python - <<'PY'
@@ -68,5 +68,7 @@ jobs:
         run: pnpm exec tsc --noEmit
       - name: Production build
         run: pnpm build
+      - name: Evaluation dashboard states
+        run: node tests/eval-dashboard.mjs
       - name: Authentication proxy smoke test
         run: node tests/auth-smoke.mjs

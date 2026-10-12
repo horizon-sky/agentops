@@ -172,3 +172,40 @@ export interface TicketPage {
   page: number;
   page_size: number;
 }
+export type EvalSource = {
+  environment: "local" | "staging" | "ci";
+  golden_set_version: string;
+  code_dirty: boolean;
+  cheap_model: string;
+  llm_configured: boolean;
+  database_configured: boolean;
+  embedding_configured: boolean;
+  rerank_configured: boolean;
+  configured_retrieval_mode: "hybrid" | "bm25" | "unavailable";
+  tool_data_source: "sample";
+  agent_flags: { mode: "graph"; routing: boolean; retry: boolean; dynamic: boolean };
+};
+
+export type EvalReport = {
+  status: "empty" | "ready";
+  id: string | null;
+  started_at: string | null;
+  generated_at: string | null;
+  git_sha: string;
+  prompt_version: string;
+  model_version: string;
+  source: EvalSource | null;
+  metrics: {
+    cases?: number;
+    citation_skipped?: number;
+    task_success_rate?: number;
+    tool_accuracy?: number;
+    p50_latency_ms?: number;
+    p95_latency_ms?: number;
+    recall_at_5?: number | null;
+    avg_tokens?: number | null;
+    cost_per_task?: number | null;
+    failure_stages?: Record<string, number>;
+  };
+  report_path: string;
+};

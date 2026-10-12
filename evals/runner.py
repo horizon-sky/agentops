@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import subprocess
 import sys
 import uuid
 from datetime import UTC, datetime
@@ -26,6 +27,7 @@ from src.agent.runner import GraphRunner
 from src.config import Settings, get_settings
 from src.db.models import Run, Session, User
 from src.db.session import get_session_factory
+from src.eval_report import CompletedEvalReport
 
 ROOT = Path(__file__).resolve().parent
 GOLDEN = ROOT / "golden_set.json"
@@ -174,19 +176,38 @@ async def run_case(
         "id": case["id"],
         "query": case["query"],
         "latency_ms": latency_ms,
-        "tokens": collector.tokens,
-        "cost_usd": 0.0,
+        "tokens": None,
+        "cost_usd": None,
         **verdict,
     }
 
 
-async def main(limit: int | None, offset: int, user_id: str = "") -> int:
+async def main(
+    limit: int | None, offset: int, user_id: str = "", environment: str = "local",
+    *, settings: Settings | None = None,
+) -> int:
+    settings = settings or get_settings()
+    if settings.app_env == "production":
+        raise ValueError("Run evaluations in an isolated environment, not production")
+    if offset < 0 or (limit is not None and limit <= 0):
+        raise ValueError("Offset must be non-negative and limit must be positive")
     data = json.loads(GOLDEN.read_text(encoding="utf-8"))
     cases = data["cases"][offset:]
     if limit:
         cases = cases[:limit]
 
-    settings = get_settings()
+    if not cases:
+        raise ValueError("No evaluation cases selected")
+    started_at = datetime.now(UTC)
+    git_sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT.parent, text=True,
+    ).strip()
+    code_dirty = bool(subprocess.check_output(
+        ["git", "status", "--porcelain", "--untracked-files=normal", "--",
+         "src", "evals", "apps/api", "services", "scripts"], cwd=ROOT.parent, text=True,
+    ).strip())
+    # This script always invokes GraphRunner, even if the web server defaults to echo.
+    settings = settings.model_copy(update={"agent_mode": "graph"})
     runner = GraphRunner(settings)
     results: list[dict[str, object]] = []
 
@@ -195,14 +216,38 @@ async def main(limit: int | None, offset: int, user_id: str = "") -> int:
         print(f"{case['id']} {'PASS' if results[-1]['passed'] else 'FAIL'}")
 
     metrics = aggregate([item for item in results if isinstance(item, dict)])  # type: ignore[arg-type]
-    payload = {
-        "generated_at": datetime.now(UTC).isoformat(),
-        "golden_set_version": data["version"],
-        "metrics": metrics,
-        "results": results,
-    }
-    REPORT_JSON.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    REPORT_MD.write_text(to_markdown(metrics), encoding="utf-8")
+    report = CompletedEvalReport.model_validate({
+        "schema_version": 1, "id": uuid.uuid4(), "status": "completed",
+        "started_at": started_at, "generated_at": datetime.now(UTC), "git_sha": git_sha,
+        "prompt_version": settings.prompt_version,
+        "model_version": settings.strong_model if settings.llm_api_key else "offline",
+        "selected_cases": len(cases), "metrics": metrics,
+        "source": {
+            "environment": environment, "golden_set_version": data["version"],
+            "code_dirty": code_dirty,
+            "cheap_model": settings.cheap_model if settings.llm_api_key else "offline",
+            "llm_configured": bool(settings.llm_api_key),
+            "database_configured": settings.has_database,
+            "embedding_configured": bool(settings.embedding_api_key and settings.embedding_model),
+            "rerank_configured": bool(settings.rerank_enabled and settings.rerank_api_key),
+            "configured_retrieval_mode": ("unavailable" if not settings.has_database else
+                               "hybrid" if settings.embedding_api_key
+                               and settings.embedding_model else "bm25"),
+            "tool_data_source": "sample", "agent_flags": settings.agent_flags(),
+        },
+    })
+    payload = {**report.model_dump(mode="json"), "results": results}
+    # Atomic replacement keeps the last completed report intact on interruption.
+    temporary = REPORT_JSON.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(REPORT_JSON)
+    provenance = (
+        f"\n\n- 报告 ID：{report.id}\n- 完成时间：{report.generated_at.isoformat()}"
+        f"\n- 代码版本：{report.git_sha}\n- 评测环境：{environment}"
+        f"\n- 模型：{report.model_version}\n- Prompt：{report.prompt_version}"
+        f"\n- 黄金集：{report.source.golden_set_version}\n- 指标工具：样例数据源"
+    )
+    REPORT_MD.write_text(to_markdown(metrics) + provenance, encoding="utf-8")
     print(to_markdown(metrics))
     return 0
 
@@ -212,5 +257,6 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--user-id", default="", help="Verified account owning evaluation data")
+    parser.add_argument("--environment", choices=["local", "staging", "ci"], default="local")
     args = parser.parse_args()
-    raise SystemExit(_run(main(args.limit, args.offset, args.user_id)))
+    raise SystemExit(_run(main(args.limit, args.offset, args.user_id, args.environment)))

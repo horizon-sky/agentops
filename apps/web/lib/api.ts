@@ -1,4 +1,5 @@
 import type {
+  EvalReport,
   AgentEvent,
   HitlPayload,
   RunRef,
@@ -85,10 +86,7 @@ export function fetchTrace(runId: string): Promise<TraceNode[]> {
   return request<TraceNode[]>(`/traces/${runId}`);
 }
 
-export function fetchEvalReport(): Promise<{
-  metrics: Record<string, number | string>;
-  report_path: string;
-}> {
+export function fetchEvalReport(): Promise<EvalReport> {
   return request("/eval/report");
 }
 

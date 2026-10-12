@@ -17,6 +17,7 @@ node_modules/
 out/
 evals/report.json
 evals/report.md
+evals/report.json.tmp
 evals/reports/
 data/*.pdf
 data/*.json

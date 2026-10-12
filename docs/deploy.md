@@ -97,8 +97,8 @@ uv run python -m scripts.manage_users --email admin@example.com --role admin --c
 # 禁用/启用账号（同时撤销现有会话）
 uv run python -m scripts.manage_users --email user@example.com --disable
 uv run python -m scripts.manage_users --email user@example.com --enable
-# 真实数据库评测，只能使用指定的已验证账号资源
-uv run python -m evals.runner --limit 40 --user-id <verified-user-uuid>
+# 同库隔离评测默认离线，不写日常账号资源，也不自动发布报告
+uv run python -m scripts.evaluate_isolated --limit 5
 ```
 
 没有默认管理员或共享登录密码。管理员也只能访问自己拥有的业务资源。后端保持一个 worker、一个副本；事件总线、任务和注册/登录/上传限流仍在内存中，重启会清空限流。
@@ -152,3 +152,11 @@ Redis 仅保留项目原有的可选缓存用途，不增加新的依赖或服�
 
 本次回退仅撤销未发布的 P3 代码与迁移文件，迁移 head 恢复为 `0006_execution_plan`，
 未对实际数据库执行 downgrade。原有 `alembic/env.py` 工作区修改保留。
+
+## 9. 评测看板首版
+
+迁移 `0007_eval_reports` 为 `eval_runs` 增加实际完成时间和来源元数据。
+后端从数据库读取最新已发布报告，不再读取容器文件；仅管理员可访问。
+评测支持复用现有数据库的临时独立 schema，结果经审查后使用受控命令发布汇总数据。
+真实模型调用、管理员角色变更和生产报告发布须分别完成验收，不由 CI 自动执行。
+详细命令、报告口径、上线顺序及回滚说明见 [评测发布说明](evaluation-release.md)。

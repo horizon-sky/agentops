@@ -199,3 +199,5 @@ class EvalRun(Base):
     metrics: Mapped[dict] = mapped_column(JSONB, default=dict)
     report_path: Mapped[str] = mapped_column(String(300), default="")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source: Mapped[dict] = mapped_column(JSONB, default=dict)

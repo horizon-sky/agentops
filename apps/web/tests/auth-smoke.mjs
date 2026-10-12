@@ -37,7 +37,8 @@ const backend = createServer(async (req, res) => {
     active = false;
     res.end(JSON.stringify({ message: "Logged out" }));
   } else if (req.url === "/eval/report") {
-    res.writeHead(403).end(JSON.stringify({ detail: "admin required" }));
+    if (user.role !== "admin") res.writeHead(403).end(JSON.stringify({ detail: "admin required" }));
+    else res.end(JSON.stringify({ status: "empty", metrics: {}, report_path: "" }));
   } else if (req.url === "/sessions") {
     res.end(JSON.stringify([]));
   } else if (req.url === "/tickets?page=2") {
@@ -156,6 +157,19 @@ try {
     body: JSON.stringify({ title: "Manual", source: "", content: "Original source" }),
   })).status, 201);
   assert.equal((await fetch(`${origin}/api/eval/report`, { headers: { Cookie: cookie } })).status, 403);
+  const memberEval = await fetch(`${origin}/evals`, { headers: { Cookie: cookie } });
+  assert.match(await memberEval.text(), /评测看板仅管理员可访问/);
+  user.role = "admin";
+  const adminEval = await fetch(`${origin}/evals`, { headers: { Cookie: cookie } });
+  const adminHtml = await adminEval.text();
+  assert.equal(adminEval.status, 200);
+  assert.match(adminHtml, /href="\/evals"/);
+  assert.match(adminHtml, /正在读取评测报告/);
+  const emptyEval = await fetch(`${origin}/api/eval/report`, { headers: { Cookie: cookie } });
+  assert.equal(emptyEval.status, 200);
+  assert.equal((await emptyEval.json()).status, "empty");
+  assert.equal(calls.at(-1).headers.authorization, `Bearer ${token}`);
+  user.role = "member";
   unavailable = true;
   assert.equal((await fetch(`${origin}/api/auth/session`, { headers: { Cookie: cookie } })).status, 503);
   const failedLogout = await post("logout", {}, cookie);
