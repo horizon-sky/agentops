@@ -1,0 +1,1638 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AgentOps · 研发工单自动化 Agent 工作台（高保真交互原型）</title>
+  <style>
+    :root {
+      --bg-nav: #191a19;
+      --bg-main: #202120;
+      --bg-panel: #1b1d1b;
+      --bg-inspector: #1c1e1c;
+      --text-main: #e9ebe8;
+      --text-muted: #9da49c;
+      --line: #343834;
+      --accent: #b6cdbf;
+      --accent-dark: #253126;
+      --warn-bg: #2c2d25;
+      --warn-border: #696044;
+      --warn-text: #e1c58c;
+      --danger-bg: #382928;
+      --danger-border: #704444;
+      --danger-text: #e9aaa3;
+      --ok-bg: #27352d;
+      --ok-border: #4d6e59;
+      --ok-text: #b9d8c5;
+      --pm-bg: rgba(99, 102, 241, 0.14);
+      --pm-border: rgba(129, 140, 248, 0.55);
+      --pm-text: #c7d2fe;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg-main);
+      color: var(--text-main);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      height: 100%;
+    }
+    button, input, select, textarea {
+      font-family: inherit;
+      color: inherit;
+    }
+    button { cursor: pointer; background: none; border: none; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Top Global Navigation */
+    .top-nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 60px;
+      background: var(--bg-nav);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      padding: 0 22px;
+      gap: 20px;
+      z-index: 50;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-icon {
+      width: 34px; height: 34px;
+      border-radius: 9px;
+      background: #303330;
+      border: 1px solid #484e48;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .brand-title { font-size: 14px; font-weight: 600; color: #fff; }
+    .brand-sub { font-size: 11px; color: var(--text-muted); }
+
+    .nav-tabs {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .nav-tab {
+      padding: 7px 13px;
+      border-radius: 7px;
+      font-size: 13px;
+      color: var(--text-muted);
+      transition: all 0.15s;
+    }
+    .nav-tab:hover { background: rgba(255,255,255,0.05); color: #fff; }
+    .nav-tab.active {
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+      font-weight: 500;
+    }
+
+    .nav-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .pm-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 99px;
+      font-size: 12px;
+      border: 1px solid var(--pm-border);
+      background: var(--pm-bg);
+      color: var(--pm-text);
+      font-weight: 500;
+    }
+    .pm-toggle.off {
+      border-color: #464c46;
+      background: transparent;
+      color: var(--text-muted);
+    }
+    .user-pill {
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid #353935;
+      background: #222522;
+    }
+
+    /* Prototype Interactive Scenario Bar */
+    .proto-bar {
+      position: fixed;
+      top: 60px; left: 0; right: 0;
+      min-height: 42px;
+      background: #141614;
+      border-bottom: 1px solid #2e332e;
+      display: flex;
+      align-items: center;
+      padding: 6px 22px;
+      gap: 14px;
+      z-index: 45;
+      font-size: 12px;
+      flex-wrap: wrap;
+    }
+    .proto-badge {
+      background: #2b352e;
+      color: var(--accent);
+      border: 1px solid #45574a;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .proto-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .proto-group span { color: var(--text-muted); font-size: 11px; }
+    .proto-chip {
+      padding: 4px 9px;
+      border-radius: 5px;
+      border: 1px solid #383d38;
+      background: #212421;
+      color: #c7cdc6;
+      font-size: 11px;
+    }
+    .proto-chip:hover { border-color: #5a635a; }
+    .proto-chip.active {
+      background: #dce5df;
+      color: #222b23;
+      border-color: #dce5df;
+      font-weight: 600;
+    }
+
+    /* PM Annotation Callout */
+    .pm-note {
+      margin: 10px 0;
+      padding: 10px 13px;
+      border-radius: 8px;
+      border: 1px dashed var(--pm-border);
+      background: var(--pm-bg);
+      color: var(--pm-text);
+      font-size: 11.5px;
+      line-height: 1.65;
+    }
+    .pm-note strong {
+      color: #fff;
+      font-weight: 600;
+    }
+    body.hide-pm .pm-note { display: none !important; }
+
+    /* Main Viewport Container */
+    .viewport {
+      padding-top: 102px;
+      height: 100vh;
+    }
+    .page-view { display: none; height: 100%; }
+    .page-view.active { display: block; }
+
+    /* ==================== PAGE 1: WORKBENCH ==================== */
+    .workbench {
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr) 360px;
+      height: calc(100vh - 102px);
+      background: var(--bg-main);
+    }
+    .wb-sessions {
+      background: var(--bg-nav);
+      border-right: 1px solid var(--line);
+      padding: 18px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      overflow-y: auto;
+    }
+    .btn-new-session {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 9px 12px;
+      border: 1px solid #424742;
+      border-radius: 8px;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .btn-new-session:hover { background: #292c29; }
+    .session-item {
+      padding: 10px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: left;
+      line-height: 1.4;
+    }
+    .session-item.active, .session-item:hover {
+      background: #2b2e2b;
+      color: var(--text-main);
+    }
+    .session-meta {
+      display: block;
+      font-size: 10px;
+      color: #788077;
+      margin-top: 3px;
+    }
+
+    .wb-chat {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-width: 0;
+    }
+    .chat-header {
+      height: 56px;
+      padding: 0 26px;
+      border-bottom: 1px solid #2d302d;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .chat-header h1 { font-size: 14px; font-weight: 500; margin: 0; }
+    .chat-header p { font-size: 11px; color: var(--text-muted); margin: 2px 0 0; }
+    .status-badge {
+      padding: 3px 9px;
+      border-radius: 99px;
+      font-size: 11px;
+      border: 1px solid #4a524a;
+      background: #272b27;
+    }
+    .status-badge.waiting {
+      background: var(--warn-bg);
+      border-color: var(--warn-border);
+      color: var(--warn-text);
+    }
+
+    .chat-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 26px 32px;
+    }
+    .chat-inner {
+      max-width: 760px;
+      margin: 0 auto;
+    }
+    .user-bubble {
+      width: fit-content;
+      max-width: 88%;
+      margin-left: auto;
+      margin-bottom: 24px;
+      padding: 12px 16px;
+      border-radius: 16px 16px 4px 16px;
+      background: #303430;
+      font-size: 13.5px;
+      line-height: 1.75;
+    }
+    .agent-turn {
+      display: flex;
+      gap: 12px;
+    }
+    .agent-avatar {
+      width: 28px; height: 28px;
+      border-radius: 8px;
+      border: 1px solid #4b544b;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .agent-body { flex: 1; min-width: 0; }
+
+    /* Activity Execution Plan Box */
+    .plan-box {
+      border: 1px solid #353b35;
+      background: #1b1e1b;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      font-size: 12px;
+    }
+    .plan-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+    .plan-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .plan-step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .step-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #6c756c;
+    }
+    .step-dot.done { background: #7ec298; }
+    .step-dot.waiting { background: #e1c58c; }
+    .step-dot.denied { background: #e28f86; }
+    .step-tag {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 10.5px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: #282d28;
+      color: #b8c2b8;
+    }
+
+    .reply-text {
+      font-size: 13.5px;
+      line-height: 1.85;
+    }
+    .reply-text p { margin: 0 0 12px; }
+    .cite-anchor {
+      display: inline-flex;
+      align-items: center;
+      margin: 0 3px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: #344038;
+      color: #c4dacd;
+      font-size: 11px;
+      font-family: ui-monospace, monospace;
+      border: 1px solid #48594d;
+    }
+    .cite-anchor:hover { background: #415247; }
+
+    /* P01 & P04 Approval Card */
+    .approval-card {
+      margin-top: 18px;
+      border: 1px solid var(--warn-border);
+      border-radius: 10px;
+      padding: 18px;
+      background: var(--warn-bg);
+    }
+    .approval-card.state-created {
+      border-color: var(--ok-border);
+      background: #1f2923;
+    }
+    .approval-card.state-denied, .approval-card.state-failed {
+      border-color: var(--danger-border);
+      background: #2b2120;
+    }
+    .approval-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13.5px;
+      font-weight: 600;
+    }
+    .approval-evidence-box {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 7px;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 11.5px;
+      line-height: 1.65;
+    }
+    .evidence-gap-alert {
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px dashed rgba(255,255,255,0.12);
+      color: var(--warn-text);
+    }
+    .approval-field {
+      display: block;
+      margin-top: 11px;
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+    .approval-input {
+      display: block;
+      width: 100%;
+      margin-top: 5px;
+      border: 1px solid #4c5148;
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: #1e201b;
+      color: var(--text-main);
+      font-size: 12px;
+    }
+    .approval-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .btn-primary {
+      padding: 8px 14px;
+      border-radius: 6px;
+      background: #dce5df;
+      color: #222d23;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .btn-primary:hover { background: #edf4ee; }
+    .btn-secondary {
+      padding: 8px 13px;
+      border-radius: 6px;
+      border: 1px solid #53584d;
+      color: #d5d9d0;
+      font-size: 12px;
+    }
+    .btn-secondary:hover { background: #383b32; }
+
+    /* Composer */
+    .composer-dock {
+      padding: 12px 32px 16px;
+      max-width: 760px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    .composer-box {
+      border: 1px solid #4b514b;
+      border-radius: 14px;
+      background: #292c29;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .composer-box input {
+      flex: 1;
+      background: transparent;
+      border: 0;
+      outline: none;
+      font-size: 13px;
+    }
+    .composer-note {
+      text-align: center;
+      font-size: 10.5px;
+      color: var(--text-muted);
+      margin-top: 7px;
+    }
+
+    /* Right Inspector */
+    .wb-inspector {
+      background: var(--bg-inspector);
+      border-left: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow-y: auto;
+      padding: 0 18px 24px;
+    }
+    .inspector-head {
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      flex-shrink: 0;
+    }
+    .inspector-head h2 { font-size: 13.5px; font-weight: 500; margin: 0; }
+    .inspector-section {
+      padding: 16px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .sec-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12.5px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .pill {
+      padding: 2px 7px;
+      border-radius: 99px;
+      border: 1px solid #3f453f;
+      font-size: 10.5px;
+      color: var(--text-muted);
+    }
+
+    .cite-card {
+      border: 1px solid #383e38;
+      border-radius: 9px;
+      padding: 11px;
+      background: #222522;
+      margin-bottom: 8px;
+      font-size: 11.5px;
+      transition: all 0.15s;
+    }
+    .cite-card.active {
+      border-color: var(--accent);
+      background: #263029;
+    }
+    .cite-card-head {
+      display: flex;
+      justify-content: space-between;
+      font-weight: 600;
+      color: #fff;
+    }
+    .cite-meta {
+      font-size: 10.5px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-family: ui-monospace, monospace;
+    }
+    .cite-preview {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #363d36;
+      color: #dce3dc;
+      line-height: 1.65;
+      white-space: pre-wrap;
+    }
+
+    /* Operational Pages Shared Layout */
+    .ops-container {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 28px 36px 60px;
+    }
+    .ops-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-bottom: 22px;
+    }
+    .ops-kicker {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin: 0 0 6px;
+    }
+    .ops-header h1 {
+      font-size: 26px;
+      margin: 0;
+      font-weight: 600;
+    }
+    .ops-desc {
+      margin: 6px 0 0;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .ops-panel {
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--bg-panel);
+      overflow: hidden;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      text-align: left;
+    }
+    .data-table th {
+      height: 42px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+    .data-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid #282b28;
+      vertical-align: top;
+    }
+    .data-table tr:hover td { background: #232623; }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 16px;
+    }
+    .summary-cell {
+      padding: 14px 18px;
+      border-right: 1px solid var(--line);
+    }
+    .summary-cell:last-child { border-right: 0; }
+    .summary-cell span { font-size: 11px; color: var(--text-muted); display: block; }
+    .summary-cell strong { font-size: 22px; font-weight: 600; margin-top: 4px; display: block; }
+
+    .badge-sev {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      border: 1px solid #464c46;
+    }
+    .badge-p0 { background: #382726; border-color: #86514b; color: #e7aaa1; }
+    .badge-p1 { background: #353022; border-color: #806b44; color: #e1c58c; }
+    .badge-p2 { background: #273238; border-color: #4b6878; color: #b8d2e0; }
+
+    .badge-status {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .st-created { background: #353124; color: #d8c995; }
+    .st-progress { background: #273238; color: #b8d2e0; }
+    .st-resolved { background: #27352d; color: #b9d8c5; }
+
+    /* Trace Replay Layout */
+    .trace-grid {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 16px;
+    }
+    .span-row {
+      border: 1px solid #343a34;
+      border-radius: 7px;
+      padding: 11px 14px;
+      background: #202320;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+    .span-stage {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      margin-right: 6px;
+    }
+    .stg-plan { background: #373243; color: #c7c0df; }
+    .stg-retrieve { background: #293b3b; color: #b6d2d1; }
+    .stg-tools { background: #393327; color: #dfc995; }
+    .stg-generate { background: #293a30; color: #b9d8c5; }
+
+    /* Eval Metrics 9-Grid */
+    .eval-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border-top: 1px solid var(--line);
+    }
+    .eval-cell {
+      padding: 18px 20px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .eval-cell:nth-child(3n) { border-right: 0; }
+    .eval-cell dt { font-size: 11.5px; color: var(--text-muted); }
+    .eval-cell dd { margin: 8px 0 0; font-size: 24px; font-weight: 600; }
+    .eval-cell dd.unmeasured { font-size: 16px; color: var(--text-muted); font-weight: 400; }
+
+    /* Modal Dialog */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.72);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 16px;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal-card {
+      width: min(100%, 520px);
+      background: #202320;
+      border: 1px solid #4b524b;
+      border-radius: 10px;
+      padding: 22px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.65);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Global Navigation -->
+  <header class="top-nav">
+    <div class="brand">
+      <div class="brand-icon">AO</div>
+      <div>
+        <div class="brand-title">AgentOps</div>
+        <div class="brand-sub">研发知识库与工单自动化工作台 · 高保真原型</div>
+      </div>
+    </div>
+
+    <nav class="nav-tabs" aria-label="主导航">
+      <button class="nav-tab active" onclick="switchTab('workbench', this)">1. Agent 工作台</button>
+      <button class="nav-tab" onclick="switchTab('knowledge', this)">2. 知识库管理</button>
+      <button class="nav-tab" onclick="switchTab('tickets', this)">3. 工单总览</button>
+      <button class="nav-tab" onclick="switchTab('traces', this)">4. Trace 回放</button>
+      <button class="nav-tab" onclick="switchTab('evals', this)">5. 评测看板 (Admin)</button>
+    </nav>
+
+    <div class="nav-right">
+      <button id="pmToggleBtn" class="pm-toggle" onclick="togglePmNotes()">
+        <span>💡 PM 策略批注：开启</span>
+      </button>
+      <span class="user-pill">oncall-eng@agentops.dev (Admin)</span>
+    </div>
+  </header>
+
+  <!-- Interactive Prototype State Switcher Bar -->
+  <div class="proto-bar">
+    <span class="proto-badge">交互原型控制台</span>
+    <div class="proto-group">
+      <span>【P01/P04 审批与写入状态】：</span>
+      <button class="proto-chip active" onclick="setApprovalState('waiting', this)">待人工确认 (P01 默认)</button>
+      <button class="proto-chip" onclick="setApprovalState('created', this)">确认并建单成功</button>
+      <button class="proto-chip" onclick="setApprovalState('denied', this)">用户拒绝建单 (零写入)</button>
+      <button class="proto-chip" onclick="setApprovalState('unknown', this)">响应超时 · 结果待确认 (P04)</button>
+      <button class="proto-chip" onclick="setApprovalState('failed', this)">事务回滚 · 明确未写入 (P04)</button>
+    </div>
+    <div class="proto-group" style="margin-left: auto;">
+      <span>【P02/P03 检索与资料状态】：</span>
+      <button class="proto-chip active" onclick="setRetrievalState('hit', this)">正常命中引用 (P02)</button>
+      <button class="proto-chip" onclick="setRetrievalState('empty', this)">个人知识库为空 (P03)</button>
+      <button class="proto-chip" onclick="setRetrievalState('nomatch', this)">无匹配片段 (P03)</button>
+      <button class="proto-chip" onclick="setRetrievalState('error', this)">检索服务异常 (P03)</button>
+    </div>
+  </div>
+
+  <!-- Main Viewport -->
+  <div class="viewport">
+
+    <!-- ==================== TAB 1: AGENT WORKBENCH ==================== -->
+    <section id="view-workbench" class="page-view active">
+      <div class="workbench">
+        <!-- Left Sidebar: Sessions -->
+        <aside class="wb-sessions">
+          <button class="btn-new-session" onclick="alert('原型演示：新建空白会话，右侧展示快捷入库引导与 3 个高频场景 Prompt 模板。')">
+            <span>＋</span> <span>新建会话</span>
+          </button>
+          <button class="session-item active">
+            订单服务 5xx 排查与跟进建单
+            <span class="session-meta">刚刚 · Graph 模式 · 等待确认</span>
+          </button>
+          <button class="session-item" onclick="setRetrievalState('empty', document.querySelectorAll('.proto-group:last-child .proto-chip')[1])">
+            支付网关超时规范查询 (空库演示)
+            <span class="session-meta">12 分钟前 · 0 条引用</span>
+          </button>
+          <button class="session-item">
+            查询 P0 故障升级与回滚准入条件
+            <span class="session-meta">昨天 · 已完成 · 2 条引用</span>
+          </button>
+
+          <div class="pm-note" style="margin-top: auto;">
+            <strong>【PM 批注 · 会话与快照恢复】</strong><br/>
+            每次运行状态（含 plan、citations、pending approval）实时写入 Postgres <code>runs</code> 表与 LangGraph Checkpointer。用户刷新浏览器或切换会话后，未处理的审批卡不会丢失。
+          </div>
+        </aside>
+
+        <!-- Center Main Stage -->
+        <main class="wb-chat">
+          <header class="chat-header">
+            <div>
+              <h1>订单服务 5xx 排查与跟进建单</h1>
+              <p>运行模式：<code>AGENT_MODE=graph</code> · 会话隔离：仅当前账号可见</p>
+            </div>
+            <span id="headerStatusBadge" class="status-badge waiting">等待人工确认 (HITL)</span>
+          </header>
+
+          <div class="chat-scroll">
+            <div class="chat-inner">
+              <div class="pm-note">
+                <strong>【PM 批注 · 北极星主线任务 (S03)】</strong><br/>
+                本视图展示核心闭环：自然语言报障与建单诉求 → 服务端校验 DAG 计划（强制先收集证据再执行写操作） → 混合检索与只读工具执行 → 写前向用户透明呈现<strong>“已有依据 + 证据缺口 + 待写入参数”</strong>。
+              </div>
+
+              <!-- User Message -->
+              <div class="user-bubble">
+                请创建一个 P2 跟进工单：订单服务（order-service）最近 1 小时出现偶发 5xx 报错，请先帮我查一下知识库规范和监控指标，由于目前还没有拿到现场错误日志，原因待确认，先建单跟进。
+              </div>
+
+              <!-- Agent Turn -->
+              <div class="agent-turn">
+                <div class="agent-avatar">AI</div>
+                <div class="agent-body">
+
+                  <!-- Structured DAG Execution Plan -->
+                  <div class="plan-box">
+                    <div class="plan-title">
+                      <span><strong>受约束 DAG 执行计划</strong>（经 <code>validate_plan</code> 拓扑与白名单校验）</span>
+                      <span>耗时 420 ms · 补证 0/2</span>
+                    </div>
+                    <div class="plan-steps">
+                      <div class="plan-step">
+                        <span class="step-dot done"></span>
+                        <span class="step-tag">retrieve</span>
+                        <span>检索个人知识库：<code>订单服务 5xx 排查规范</code></span>
+                        <span style="margin-left:auto; color:#7ec298;">已完成 (2 命中)</span>
+                      </div>
+                      <div class="plan-step">
+                        <span class="step-dot done"></span>
+                        <span class="step-tag">tool:read</span>
+                        <span>并发只读工具：<code>query_metrics(service="order-service", window="1h")</code> & <code>search_code</code></span>
+                        <span style="margin-left:auto; color:#7ec298;">已完成 (样例数据)</span>
+                      </div>
+                      <div class="plan-step">
+                        <span id="planWriteDot" class="step-dot waiting"></span>
+                        <span class="step-tag">tool:high</span>
+                        <span>高风险写工具：<code>create_ticket</code>（依赖 <code>retrieve, tool-0, tool-1</code> 全部完成）</span>
+                        <span id="planWriteStatus" style="margin-left:auto; color:#e1c58c;">挂起等待确认</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Agent Streaming Reply with Citations -->
+                  <div id="agentReplyContent" class="reply-text">
+                    <p>我已检索您的个人知识库并查询了相关线索，整理如下：</p>
+                    <p>
+                      1. <strong>处理规范依据</strong>：根据《线上 5xx 故障分级与应急手册》<button class="cite-anchor" onclick="selectCitation('cite-1')">[chunk-8f3a · 查看原文]</button>，出现偶发 5xx 时应优先核查最近 30 分钟是否有发布变更，并收集网关层与上游连接池日志<button class="cite-anchor" onclick="selectCitation('cite-2')">[chunk-2c91 · 查看原文]</button>。<br/>
+                      2. <strong>只读工具线索</strong>：<code>query_metrics</code> 返回演示样例序列（<code>error_rate: 2.4%</code>，标注为非实时生产监控）；<code>search_code</code> 仅覆盖本仓库演示源码。<br/>
+                      3. <strong>当前证据缺口声明</strong>：<strong>目前缺少现场 Pod 错误日志与最近部署记录，尚不能确认 5xx 的真实根因。</strong>
+                    </p>
+                  </div>
+
+                  <!-- P01 / P04 Approval Card -->
+                  <section id="approvalCard" class="approval-card" aria-label="人工确认">
+                    <!-- Dynamic content injected by JS based on P01/P04 state -->
+                  </section>
+
+                  <div class="pm-note">
+                    <strong>【PM 批注 · P01 写前缺口同屏 & P04 未知状态防重设计】</strong><br/>
+                    1. <strong>为什么允许原因未明时建单？</strong> 研发实务中常需先建“跟进单”搜集日志，但系统严禁把猜测填成已确认根因，因此在审批卡内强制同屏展示“证据缺口提示”，并保留“原因待核实”描述。<br/>
+                    2. <strong>尝试点击上方控制台的「响应超时 · 结果待确认 (P04)」</strong>：展示当网络断连无法确认事务是否提交时，如何引导用户核对工单总览而非盲目重试，配合服务端 <code>(owner_id, idempotency_key)</code> 唯一索引彻底杜绝重复建单。
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="composer-dock">
+            <div class="composer-box">
+              <input type="text" value="" placeholder="补充问题背景，或输入新的知识库查询 / 建单指令..." />
+              <button class="btn-primary" onclick="alert('原型提示：每次提问将创建新的 Run 并通过 SSE 推送事件流。')">发送</button>
+            </div>
+            <div class="composer-note">每次提问独立执行，请补充必要背景。关键结论请点击引用角标核对原文片段。</div>
+          </div>
+        </main>
+
+        <!-- Right Inspector: Timeline + Citations (P02/P03) + Tools -->
+        <aside class="wb-inspector">
+          <div class="inspector-head">
+            <h2>执行详情与溯源面板</h2>
+            <span class="pill">run_id: 94e2...b71c</span>
+          </div>
+
+          <!-- Section 1: Citation Panel (P02 & P03) -->
+          <div class="inspector-section">
+            <div class="sec-title">
+              <span>引用溯源 (P02 / P03)</span>
+              <span id="citeCountPill" class="pill">2 条命中</span>
+            </div>
+            <div id="citationContainer">
+              <!-- Populated by JS setRetrievalState() -->
+            </div>
+            <div class="pm-note">
+              <strong>【PM 批注 · P02 片段预览与 P03 四态诊断】</strong><br/>
+              上方控制台可切换 4 种检索状态：正常命中时支持展开 Chunk 级入库原文；未命中时严格区分<strong>「空库 / 无匹配 / 检索服务异常」</strong>，绝不把服务故障静默伪装成“无相关文档”。
+            </div>
+          </div>
+
+          <!-- Section 2: Tool Results -->
+          <div class="inspector-section">
+            <div class="sec-title">
+              <span>工具调用记录</span>
+              <span class="pill">只读 2 / 写 1</span>
+            </div>
+            <div class="cite-card">
+              <div class="cite-card-head">
+                <span>query_metrics (read)</span>
+                <span style="color:#7ec298;">ok · 12 ms</span>
+              </div>
+              <div class="cite-meta">args: {"service": "order-service", "window": "1h"}</div>
+              <div style="margin-top:6px; color:var(--text-muted);">
+                输出摘要：返回 3 个采样点（峰值 5xx 比例 2.4%）。<br/>
+                <span style="color:var(--warn-text);">⚠️ 数据边界标记：样例指标数据，不代表生产实时监控结果。</span>
+              </div>
+            </div>
+            <div class="cite-card">
+              <div class="cite-card-head">
+                <span>search_code (read)</span>
+                <span style="color:#7ec298;">ok · 18 ms</span>
+              </div>
+              <div class="cite-meta">args: {"query": "order-service 5xx", "top_k": 5}</div>
+              <div style="margin-top:6px; color:var(--text-muted);">
+                输出摘要：检索本仓库 <code>src/</code> 目录，命中 1 处工具定义样例。
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 3: Data Boundary Notice -->
+          <div class="inspector-section" style="border-bottom:0;">
+            <div class="sec-title"><span>当前系统数据范围说明</span></div>
+            <p style="font-size:11px; line-height:1.75; color:var(--text-muted); margin:0;">
+              • 知识库来自当前账号上传的文档，来源 URL 仅用于溯源跳转，系统不会自动爬虫抓取外部网页。<br/>
+              • 工单经人工确认后真实持久化至本工作台 Postgres <code>tickets</code> 表，受幂等键保护。
+            </p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 2: KNOWLEDGE BASE ==================== -->
+    <section id="view-knowledge" class="page-view">
+      <div class="ops-container">
+        <header class="ops-header">
+          <div>
+            <p class="ops-kicker">工作台 · 内容资产 (R01)</p>
+            <h1>知识库管理</h1>
+            <p class="ops-desc">浏览、更新和清理当前账号可检索的参考文档；入库后自动完成 Markdown 标题切分、BM25 索引与 pgvector 向量化。</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn-secondary" onclick="alert('已刷新文档列表')">刷新列表</button>
+            <button class="btn-primary" onclick="openModal('kbModal')">＋ 新增知识库文档</button>
+          </div>
+        </header>
+
+        <div class="pm-note">
+          <strong>【PM 批注 · 文档生命周期与租户隔离】</strong><br/>
+          1. 所有文档与切片严格绑定 <code>owner_id</code>，检索 SQL 在召回阶段即执行账号过滤，杜绝跨租户知识泄露。<br/>
+          2. 表格显式展示 <strong>「向量化进度 (embedded / chunks)」</strong>：当外部 Embedding API 异常或未配置时，进度显示为 <code>0/N</code>，此时混合检索自动降级为关键词 + 中文双字词（Bigram）匹配，保证核心问答可用。
+        </div>
+
+        <div class="ops-panel">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>文档标题 / Document UUID</th>
+                <th>来源标识 (Source URL)</th>
+                <th>版本</th>
+                <th>切分片段数</th>
+                <th>向量化进度</th>
+                <th>入库时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="kbTableBody">
+              <tr>
+                <td>
+                  <strong style="font-size:13px; color:#fff;">线上 5xx 故障分级与应急手册</strong>
+                  <div style="font-size:11px; color:var(--text-muted); font-family:monospace; margin-top:3px;">doc-7a91-4c02-981b-ef201938a112</div>
+                </td>
+                <td><a href="https://runbook.example.internal/5xx-guide" target="_blank">https://runbook.example.internal/5xx-guide</a></td>
+                <td><span class="badge-sev">v2.1</span></td>
+                <td>6</td>
+                <td><span style="color:#7ec298;">6 / 6 (Hybrid 就绪)</span></td>
+                <td style="color:var(--text-muted);">2026-10-26 14:20</td>
+                <td>
+                  <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="openModal('kbModal')">编辑更新</button>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <strong style="font-size:13px; color:#fff;">研发工单优先级定义与流转规范 (P0-P3)</strong>
+                  <div style="font-size:11px; color:var(--text-muted); font-family:monospace; margin-top:3px;">doc-3b19-48f1-a012-7c882019b441</div>
+                </td>
+                <td>internal://sop/ticket-sla.md</td>
+                <td><span class="badge-sev">v1.0</span></td>
+                <td>4</td>
+                <td><span style="color:#7ec298;">4 / 4 (Hybrid 就绪)</span></td>
+                <td style="color:var(--text-muted);">2026-10-25 19:05</td>
+                <td>
+                  <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="openModal('kbModal')">编辑更新</button>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <strong style="font-size:13px; color:#fff;">订单服务数据库连接池参数调优记录</strong>
+                  <div style="font-size:11px; color:var(--text-muted); font-family:monospace; margin-top:3px;">doc-9d04-4e77-b123-0a119283c550</div>
+                </td>
+                <td>order-db-tuning.txt</td>
+                <td><span class="badge-sev">v1.2</span></td>
+                <td>3</td>
+                <td><span style="color:var(--warn-text);">0 / 3 (仅 BM25 关键词)</span></td>
+                <td style="color:var(--text-muted);">2026-10-24 11:30</td>
+                <td>
+                  <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="openModal('kbModal')">编辑更新</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 3: TICKETS OVERVIEW ==================== -->
+    <section id="view-tickets" class="page-view">
+      <div class="ops-container">
+        <header class="ops-header">
+          <div>
+            <p class="ops-kicker">工作台 · 跟进队列 (R04 / R05)</p>
+            <h1>工单总览</h1>
+            <p class="ops-desc">管理在 Agent 工作台经人工确认后持久化的工单记录，支持更新业务状态（created / in_progress / resolved / closed）与软删除归档。</p>
+          </div>
+          <button class="btn-secondary" onclick="alert('已同步最新工单列表')">刷新队列</button>
+        </header>
+
+        <div class="pm-note">
+          <strong>【PM 批注 · 真实业务闭环而非聊天文本】</strong><br/>
+          工单表包含数据库级唯一约束 <code>UniqueConstraint("owner_id", "idempotency_key")</code>。此外，Agent 运行结束不会自动把工单标记为已关闭——因为创建工单只是线下排查跟进的开始，状态流转由工程师在此页面持续维护。
+        </div>
+
+        <div class="summary-grid">
+          <div class="summary-cell"><span>全部工单</span><strong id="ticketTotalCount">3</strong></div>
+          <div class="summary-cell"><span>当前页展示</span><strong id="ticketPageCount">3</strong></div>
+          <div class="summary-cell"><span>本页待处理 / 处理中</span><strong style="color:var(--warn-text);">2</strong></div>
+          <div class="summary-cell"><span>本页已解决 / 已关闭</span><strong style="color:#7ec298;">1</strong></div>
+        </div>
+
+        <div class="ops-panel">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>工单编号 / 幂等键</th>
+                <th>标题与描述摘要</th>
+                <th>优先级</th>
+                <th>业务状态</th>
+                <th>创建时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="ticketTableBody">
+              <tr>
+                <td>
+                  <strong style="color:var(--accent); font-family:monospace;">TKT-20261027-01</strong>
+                  <div style="font-size:10.5px; color:var(--text-muted); font-family:monospace; margin-top:3px;">key: 94e2b71c:tool-2</div>
+                </td>
+                <td>
+                  <strong style="color:#fff; font-size:13px;">【跟进】订单服务偶发 5xx 报错：需补充现场错误日志与部署记录</strong>
+                  <div style="color:var(--text-muted); font-size:11.5px; margin-top:4px;">当前原因待核实。已检索《线上 5xx 故障分级与应急手册》，待值班同学补充网关与 Pod 日志后进一步定位。</div>
+                </td>
+                <td><span class="badge-sev badge-p2">P2</span></td>
+                <td><span class="badge-status st-created">待处理 (created)</span></td>
+                <td style="color:var(--text-muted);">2026-10-27 14:25</td>
+                <td>
+                  <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="openModal('ticketModal')">编辑状态</button>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <strong style="color:var(--accent); font-family:monospace;">TKT-20261026-08</strong>
+                  <div style="font-size:10.5px; color:var(--text-muted); font-family:monospace; margin-top:3px;">key: 61a0f912:tool-1</div>
+                </td>
+                <td>
+                  <strong style="color:#fff; font-size:13px;">核查支付回调接口延迟毛刺（P95 > 1200ms）</strong>
+                  <div style="color:var(--text-muted); font-size:11.5px; margin-top:4px;">结合知识库连接池排查步骤，正在联系 DBA 核查慢查询日志。</div>
+                </td>
+                <td><span class="badge-sev badge-p1">P1</span></td>
+                <td><span class="badge-status st-progress">处理中 (in_progress)</span></td>
+                <td style="color:var(--text-muted);">2026-10-26 18:12</td>
+                <td>
+                  <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="openModal('ticketModal')">编辑状态</button>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <strong style="color:var(--accent); font-family:monospace;">TKT-20261024-03</strong>
+                  <div style="font-size:10.5px; color:var(--text-muted); font-family:monospace; margin-top:3px;">key: 19c4d301:tool-1</div>
+                </td>
+                <td>
+                  <strong style="color:#fff; font-size:13px;">补充库存服务限流降级配置文档</strong>
+                  <div style="color:var(--text-muted); font-size:11.5px; margin-top:4px;">已将最新 Sentinel 规则同步入库至团队知识库 v1.3。</div>
+                </td>
+                <td><span class="badge-sev">P3</span></td>
+                <td><span class="badge-status st-resolved">已解决 (resolved)</span></td>
+                <td style="color:var(--text-muted);">2026-10-24 10:05</td>
+                <td>
+                  <button class="btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="openModal('ticketModal')">编辑状态</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 4: TRACE REPLAY ==================== -->
+    <section id="view-traces" class="page-view">
+      <div class="ops-container">
+        <header class="ops-header">
+          <div>
+            <p class="ops-kicker">工作台 · 可观测性 (R06)</p>
+            <h1>Trace 执行树回放</h1>
+            <p class="ops-desc">按阶段复查单次 Run 的 Span 树，定位意图分类、混合检索、工具调用或证据审查环节的耗时与异常。</p>
+          </div>
+          <span class="pill" style="color:#7ec298; border-color:#4d6e59;">● 已加载 Run: 94e2b71c-8102-4f1a-9b11-029381726354</span>
+        </header>
+
+        <div class="pm-note">
+          <strong>【PM 批注 · 为什么需要 Span 级回放？】</strong><br/>
+          当一次任务回答质量不佳或耗时过长时，产品与研发需要快速区分是 <code>classify</code> 意图分错、<code>retrieve</code> 发生了 Embedding 降级、还是 <code>review</code> 触发了多轮补证。拖动下方滑块可模拟步进回放。
+        </div>
+
+        <div class="trace-grid">
+          <aside class="ops-panel" style="padding:18px; height:fit-content;">
+            <p class="ops-kicker">回放控制器</p>
+            <h2 style="font-size:15px; margin:0 0 12px;">选择并步进回放</h2>
+            <input type="text" class="approval-input" value="94e2b71c-8102-4f1a-9b11-029381726354" readonly />
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-top:16px; color:var(--text-muted);">
+              <span>步进展开进度</span>
+              <strong id="traceStepLabel" style="color:#fff;">6 / 6 节点</strong>
+            </div>
+            <input id="traceSlider" type="range" min="1" max="6" value="6" style="width:100%; margin-top:10px; accent-color:var(--accent);" oninput="updateTraceSlider(this.value)" />
+            <div style="display:flex; gap:8px; margin-top:14px;">
+              <button class="btn-primary" style="flex:1;" onclick="updateTraceSlider(6); document.getElementById('traceSlider').value=6;">播放到底</button>
+              <button class="btn-secondary" onclick="updateTraceSlider(1); document.getElementById('traceSlider').value=1;">重置首步</button>
+            </div>
+          </aside>
+
+          <section class="ops-panel" style="padding:20px;">
+            <div id="traceTreeContainer">
+              <div class="span-row" data-step="1">
+                <div style="display:flex; align-items:center;">
+                  <span class="span-stage stg-plan">plan</span>
+                  <strong>1. classify (意图与置信度分类)</strong>
+                  <span style="margin-left:auto; font-family:monospace; color:var(--text-muted);">42 ms · status: ok</span>
+                </div>
+                <pre style="margin:8px 0 0; padding:8px; background:#151715; border-radius:5px; font-size:11px; color:#b8c2b8; overflow-x:auto;">{"intent": "ticket", "confident": true, "reason": "用户明确要求排查 5xx 并创建 P2 跟进工单"}</pre>
+              </div>
+
+              <div class="span-row" data-step="2" style="margin-left:18px;">
+                <div style="display:flex; align-items:center;">
+                  <span class="span-stage stg-plan">plan</span>
+                  <strong>2. plan & validate_plan (生成受约束 DAG)</strong>
+                  <span style="margin-left:auto; font-family:monospace; color:var(--text-muted);">35 ms · status: ok</span>
+                </div>
+                <pre style="margin:8px 0 0; padding:8px; background:#151715; border-radius:5px; font-size:11px; color:#b8c2b8; overflow-x:auto;">{"steps": ["retrieve", "tool-0(search_code)", "tool-1(query_metrics)", "tool-2(create_ticket, depends_on=[retrieve,tool-0,tool-1])", "answer"]}</pre>
+              </div>
+
+              <div class="span-row" data-step="3" style="margin-left:36px;">
+                <div style="display:flex; align-items:center;">
+                  <span class="span-stage stg-retrieve">retrieve</span>
+                  <strong>3. hybrid_search (pgvector + BM25 + RRF + Rerank)</strong>
+                  <span style="margin-left:auto; font-family:monospace; color:var(--text-muted);">168 ms · status: ok</span>
+                </div>
+                <pre style="margin:8px 0 0; padding:8px; background:#151715; border-radius:5px; font-size:11px; color:#b8c2b8; overflow-x:auto;">{"hits": 2, "retrieval": {"mode": "graph", "status": "hit", "method": "hybrid", "degraded": false}}</pre>
+              </div>
+
+              <div class="span-row" data-step="4" style="margin-left:36px;">
+                <div style="display:flex; align-items:center;">
+                  <span class="span-stage stg-tools">tools</span>
+                  <strong>4. tools: parallel_reads (query_metrics + search_code)</strong>
+                  <span style="margin-left:auto; font-family:monospace; color:var(--text-muted);">30 ms · status: ok</span>
+                </div>
+                <pre style="margin:8px 0 0; padding:8px; background:#151715; border-radius:5px; font-size:11px; color:#b8c2b8; overflow-x:auto;">{"read_calls_used": 2, "budget_remaining": 6, "results": [{"name": "query_metrics", "ok": true}, {"name": "search_code", "ok": true}]}</pre>
+              </div>
+
+              <div class="span-row" data-step="5" style="margin-left:36px;">
+                <div style="display:flex; align-items:center;">
+                  <span class="span-stage stg-tools">tools</span>
+                  <strong>5. tools: create_ticket (HITL Interrupt 挂起与恢复)</strong>
+                  <span style="margin-left:auto; font-family:monospace; color:var(--warn-text);">95 ms · status: awaiting_approval / resumed</span>
+                </div>
+                <pre style="margin:8px 0 0; padding:8px; background:#151715; border-radius:5px; font-size:11px; color:#b8c2b8; overflow-x:auto;">{"approval_id": "94e2b71c:tool-2", "risk": "high", "idempotency_key": "94e2b71c:tool-2", "write_approved": true}</pre>
+              </div>
+
+              <div class="span-row" data-step="6" style="margin-left:18px;">
+                <div style="display:flex; align-items:center;">
+                  <span class="span-stage stg-generate">generate</span>
+                  <strong>6. review & answer (证据充分性审查与流式回答)</strong>
+                  <span style="margin-left:auto; font-family:monospace; color:var(--text-muted);">310 ms · status: ok</span>
+                </div>
+                <pre style="margin:8px 0 0; padding:8px; background:#151715; border-radius:5px; font-size:11px; color:#b8c2b8; overflow-x:auto;">{"sufficient": false, "missing_evidence": ["现场错误日志", "最近 30 分钟部署记录"], "citations_bound": 2}</pre>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 5: EVAL DASHBOARD ==================== -->
+    <section id="view-evals" class="page-view">
+      <div class="ops-container">
+        <header class="ops-header">
+          <div>
+            <p class="ops-kicker">工作台 · 质量门禁与回归基线 (R08)</p>
+            <h1>最新评测报告看板</h1>
+            <p class="ops-desc">管理员专属视图：从数据库读取经受控发布的最新黄金集评测汇总，严格绑定代码 SHA、模型版本、Prompt 版本与环境配置。</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <span class="pill">完成于 2026-10-27 11:30 (HKT)</span>
+            <button class="btn-secondary" onclick="alert('已从 /eval/report 重新拉取最新已发布报告')">刷新报告</button>
+          </div>
+        </header>
+
+        <div class="pm-note">
+          <strong>【PM 批注 · 防虚高与诚实报告原则】</strong><br/>
+          1. <strong>为什么 Recall@5、Token 和单任务成本显示“未测量”？</strong> 在未完成 Chunk 级真值标注和全量计费埋点前，数据库存储为 <code>null</code>，前端如实渲染“未测量”，绝不用 <code>0</code> 或假数据误导决策。<br/>
+          2. <strong>失败阶段归因</strong>：120 条离线基线中 17 条失败集中在 <code>plan</code> 阶段（改写型注入语句漏拦截），直接指导了下一轮分类器 Prompt 与对抗样本迭代。
+        </div>
+
+        <div class="ops-panel" style="padding:20px; margin-bottom:18px;">
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <span class="pill" style="color:#fff; border-color:#5a635a;">独立 Schema 隔离评测</span>
+            <span class="pill">离线兜底基线 / 规则 Judge</span>
+            <span class="pill">检索配置：混合检索 (Hybrid)</span>
+            <span class="pill">黄金集：golden_v1 (120 cases)</span>
+            <span class="pill">执行开关：路由 关 / 补证 关 / 动态计划 关</span>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:14px; margin-top:16px; padding-top:14px; border-top:1px solid var(--line); font-size:12px;">
+            <div><span style="color:var(--text-muted); display:block;">代码版本 (git_sha)</span><strong style="font-family:monospace;">432303c4bd59</strong></div>
+            <div><span style="color:var(--text-muted); display:block;">主模型版本</span><strong>echo-offline (基线对照)</strong></div>
+            <div><span style="color:var(--text-muted); display:block;">Prompt 版本</span><strong>v1.2-structured</strong></div>
+            <div><span style="color:var(--text-muted); display:block;">报告 UUID</span><strong style="font-family:monospace;">eval-8812-90a1</strong></div>
+          </div>
+        </div>
+
+        <div class="ops-panel" style="margin-bottom:18px;">
+          <dl class="eval-grid" style="margin:0;">
+            <div class="eval-cell"><dt>任务成功率 (Task Success Rate)</dt><dd style="color:#7ec298;">85.8%</dd></div>
+            <div class="eval-cell"><dt>期望工具覆盖率 (Tool Accuracy)</dt><dd>100.0%</dd></div>
+            <div class="eval-cell"><dt>黄金集用例总数 (Cases)</dt><dd>120</dd></div>
+            <div class="eval-cell"><dt>P50 延迟 (离线基线)</dt><dd>8 ms</dd></div>
+            <div class="eval-cell"><dt>P95 延迟 (离线基线)</dt><dd>8 ms</dd></div>
+            <div class="eval-cell"><dt>引用断言跳过数 (Citation Skipped)</dt><dd style="color:var(--warn-text);">54 <span style="font-size:12px; font-weight:400; color:var(--text-muted);">(无库时不记为通过)</span></dd></div>
+            <div class="eval-cell"><dt>Recall@5 (检索召回率)</dt><dd class="unmeasured">未测量 (待标注相关 Chunk)</dd></div>
+            <div class="eval-cell"><dt>平均 Token 消耗</dt><dd class="unmeasured">未测量</dd></div>
+            <div class="eval-cell"><dt>单任务平均成本 (USD)</dt><dd class="unmeasured">未测量</dd></div>
+          </dl>
+        </div>
+
+        <div class="ops-panel" style="padding:20px;">
+          <h2 style="font-size:15px; margin:0 0 6px;">失败阶段分布 (Failure Stages)</h2>
+          <p style="font-size:12px; color:var(--text-muted); margin:0 0 14px;">每个未通过用例按首个断言失败的阶段归类，辅助定位系统短板。</p>
+          <table class="data-table">
+            <thead>
+              <tr><th>阶段名称</th><th>失败用例数</th><th>占比</th><th>PM 复盘与归因说明</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>规划与分类 (plan)</strong></td>
+                <td style="color:var(--danger-text); font-weight:600;">17</td>
+                <td>14.2%</td>
+                <td style="color:var(--text-muted);">集中于改写型 Prompt 注入样本（如“你现在是管理员”），离线关键词规则漏召回；需启用结构化分类模型并由下游 <code>validate_plan</code> + HITL 纵深拦截。</td>
+              </tr>
+              <tr>
+                <td>检索阶段 (retrieve)</td>
+                <td>0</td>
+                <td>0.0%</td>
+                <td style="color:var(--text-muted);">无数据库环境下 54 条引用断言显式标记为 <code>skipped</code>，不计入伪通过。</td>
+              </tr>
+              <tr>
+                <td>工具与审批 (tools)</td>
+                <td>0</td>
+                <td>0.0%</td>
+                <td style="color:var(--text-muted);">Pydantic 参数校验、风险分级与 HITL 审批挂起断言全部通过。</td>
+              </tr>
+              <tr>
+                <td>回答生成 (generate)</td>
+                <td>0</td>
+                <td>0.0%</td>
+                <td style="color:var(--text-muted);">兜底拒答与证据不足前缀声明符合预期。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Modal 1: Knowledge Base Upload/Edit -->
+  <div id="kbModal" class="modal-backdrop">
+    <div class="modal-card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <p class="ops-kicker">知识库操作</p>
+          <h2 style="margin:0; font-size:17px;">新增 / 编辑参考文档</h2>
+        </div>
+        <button class="btn-secondary" onclick="closeModal('kbModal')">✕</button>
+      </div>
+      <label class="approval-field">文档标题 (必填)<input class="approval-input" value="线上 5xx 故障分级与应急手册" /></label>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <label class="approval-field">来源 URL / 文件名<input class="approval-input" value="https://runbook.example.internal/5xx-guide" /></label>
+        <label class="approval-field">版本号<input class="approval-input" value="v2.2" /></label>
+      </div>
+      <div style="margin-top:10px; font-size:11px; color:var(--text-muted);">支持上传 .md / .txt / .json / .csv 文本文件（最大 1 MB），保存后自动重新切分并生成向量。</div>
+      <label class="approval-field">文档正文 (Markdown)<textarea class="approval-input" rows="6"># 线上 5xx 故障排查规范
+## 1. 首要检查项
+出现偶发 5xx 时，值班工程师应优先核查最近 30 分钟内是否有服务发布或配置变更。
+## 2. 日志与连接池取证
+收集 API 网关层 upstream 报错日志及 Pod 标准错误输出；若伴随超时，需核查数据库连接池活跃连接数。</textarea></label>
+      <div class="approval-actions">
+        <button class="btn-secondary" onclick="closeModal('kbModal')">取消</button>
+        <button class="btn-primary" onclick="closeModal('kbModal'); alert('原型演示：已触发 POST /ingest，完成切分与向量化入库！');">保存并重建索引</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Ticket Edit -->
+  <div id="ticketModal" class="modal-backdrop">
+    <div class="modal-card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <p class="ops-kicker">工单维护</p>
+          <h2 style="margin:0; font-size:17px;">编辑工单 TKT-20261027-01</h2>
+        </div>
+        <button class="btn-secondary" onclick="closeModal('ticketModal')">✕</button>
+      </div>
+      <label class="approval-field">标题<input class="approval-input" value="【跟进】订单服务偶发 5xx 报错：需补充现场错误日志与部署记录" /></label>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+        <label class="approval-field">优先级
+          <select class="approval-input"><option>P0</option><option>P1</option><option selected>P2</option><option>P3</option></select>
+        </label>
+        <label class="approval-field">业务状态
+          <select class="approval-input"><option value="created">待处理 (created)</option><option value="in_progress" selected>处理中 (in_progress)</option><option value="resolved">已解决 (resolved)</option><option value="closed">已关闭 (closed)</option></select>
+        </label>
+      </div>
+      <label class="approval-field">处理进展描述<textarea class="approval-input" rows="4">已补充网关层日志，发现 order-service Pod-03 在 14:10 存在连接重置，正在进一步核查。</textarea></label>
+      <div class="approval-actions">
+        <button class="btn-secondary" onclick="closeModal('ticketModal')">取消</button>
+        <button class="btn-primary" onclick="closeModal('ticketModal'); alert('原型演示：已通过 PATCH /tickets/{id} 更新工单状态！');">保存修改</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 1. Tab Switching
+    function switchTab(tabId, btn) {
+      document.querySelectorAll('.page-view').forEach(el => el.classList.remove('active'));
+      document.getElementById('view-' + tabId).classList.add('active');
+      document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+    }
+
+    // 2. PM Annotation Toggle
+    let pmVisible = true;
+    function togglePmNotes() {
+      pmVisible = !pmVisible;
+      document.body.classList.toggle('hide-pm', !pmVisible);
+      const btn = document.getElementById('pmToggleBtn');
+      btn.classList.toggle('off', !pmVisible);
+      btn.innerHTML = pmVisible ? '<span>💡 PM 策略批注：开启</span>' : '<span>💡 PM 策略批注：已隐藏</span>';
+    }
+
+    // 3. P01 & P04 Approval Card State Machine
+    let currentTicketDraft = {
+      title: "【跟进】订单服务偶发 5xx 报错：需补充现场错误日志与部署记录",
+      severity: "P2",
+      detail: "现象：order-service 最近 1 小时偶发 5xx（样例指标峰值 2.4%）。\n依据：已查阅《线上 5xx 故障分级与应急手册》[chunk-8f3a]。\n待核实缺口：目前缺少现场 Pod 错误日志与最近部署记录，原因尚未确认，建单跟进。"
+    };
+
+    function setApprovalState(state, chipBtn) {
+      if (chipBtn) {
+        chipBtn.parentElement.querySelectorAll('.proto-chip').forEach(c => c.classList.remove('active'));
+        chipBtn.classList.add('active');
+      }
+      const card = document.getElementById('approvalCard');
+      const badge = document.getElementById('headerStatusBadge');
+      const dot = document.getElementById('planWriteDot');
+      const stepStatus = document.getElementById('planWriteStatus');
+
+      card.className = 'approval-card state-' + state;
+
+      if (state === 'waiting') {
+        badge.className = 'status-badge waiting';
+        badge.textContent = '等待人工确认 (HITL)';
+        dot.className = 'step-dot waiting';
+        stepStatus.style.color = '#e1c58c';
+        stepStatus.textContent = '挂起等待确认';
+
+        card.innerHTML = `
+          <div class="approval-header">
+            <span style="color:var(--warn-text);">🛡️ 确认创建跟进工单 (P01 写前确认卡)</span>
+            <span style="margin-left:auto; font-size:11px; font-weight:400; color:var(--warn-text);">待确认 · 尚未写入数据库</span>
+          </div>
+          <div class="approval-evidence-box">
+            <div><strong>写前依据核对</strong>：已命中 2 条知识库规范片段 · <code>query_metrics</code> 返回演示样例数据 · <code>approval_id: 94e2b71c:tool-2</code></div>
+            <div class="evidence-gap-alert">
+              ⚠️ <strong>证据缺口提示（原因尚未确认）</strong>：当前未找到可确认根因的直接依据，缺少<strong>现场错误日志 / 最近部署记录</strong>。你可以先补充资料；也可以确认创建仅用于收集信息的跟进工单（不代表根因已确认）。
+            </div>
+          </div>
+          <label class="approval-field">工单标题 (必填，可修改)
+            <input id="draftTitle" class="approval-input" value="${currentTicketDraft.title}" oninput="currentTicketDraft.title=this.value" />
+          </label>
+          <label class="approval-field">优先级 (P0–P3)
+            <select id="draftSev" class="approval-input" onchange="currentTicketDraft.severity=this.value">
+              <option ${currentTicketDraft.severity==='P0'?'selected':''}>P0</option>
+              <option ${currentTicketDraft.severity==='P1'?'selected':''}>P1</option>
+              <option ${currentTicketDraft.severity==='P2'?'selected':''}>P2</option>
+              <option ${currentTicketDraft.severity==='P3'?'selected':''}>P3</option>
+            </select>
+          </label>
+          <label class="approval-field">工单描述 (保留“原因待核实”边界)
+            <textarea id="draftDetail" class="approval-input" rows="3" oninput="currentTicketDraft.detail=this.value">${currentTicketDraft.detail}</textarea>
+          </label>
+          <div class="approval-actions">
+            <button class="btn-secondary" onclick="switchTab('knowledge', document.querySelectorAll('.nav-tab')[1])">先去补充知识库资料</button>
+            <button class="btn-secondary" onclick="setApprovalState('denied')">✕ 拒绝本次建单</button>
+            <button class="btn-primary" onclick="setApprovalState('created')">✓ 确认创建跟进工单</button>
+          </div>
+        `;
+      } else if (state === 'created') {
+        badge.className = 'status-badge';
+        badge.textContent = '已完成 · 工单已落库';
+        dot.className = 'step-dot done';
+        stepStatus.style.color = '#7ec298';
+        stepStatus.textContent = '已批准并落库';
+
+        card.innerHTML = `
+          <div class="approval-header" style="color:#7ec298;">
+            <span>✓ 已确认创建跟进工单（持久化成功）</span>
+            <span style="margin-left:auto; font-family:monospace; font-size:11px;">工单号：TKT-20261027-01</span>
+          </div>
+          <p style="font-size:12px; color:#d2dcd4; margin:10px 0 0; line-height:1.7;">
+            • <strong>最终写入参数</strong>：[${currentTicketDraft.severity}] ${currentTicketDraft.title}<br/>
+            • <strong>幂等保护</strong>：服务端幂等键 <code>94e2b71c:tool-2</code> 已锁定，重复提交恢复请求将返回 409 并复用本记录。<br/>
+            • <strong>边界提醒</strong>：工单创建成功仅代表跟进事项已记录，<strong>不代表线上 5xx 根因已确认</strong>。
+          </p>
+          <div class="approval-actions">
+            <button class="btn-secondary" onclick="setApprovalState('waiting')">重置为待审批状态</button>
+            <button class="btn-primary" onclick="switchTab('tickets', document.querySelectorAll('.nav-tab')[2])">前往「工单总览」核对记录 →</button>
+          </div>
+        `;
+      } else if (state === 'denied') {
+        badge.className = 'status-badge';
+        badge.textContent = '已拒绝写操作 · 零写入';
+        dot.className = 'step-dot denied';
+        stepStatus.style.color = '#e28f86';
+        stepStatus.textContent = '用户已拒绝 (denied)';
+
+        card.innerHTML = `
+          <div class="approval-header" style="color:var(--danger-text);">
+            <span>✕ 已拒绝本次建单操作（数据库零写入）</span>
+            <span style="margin-left:auto; font-size:11px;">step_status: denied</span>
+          </div>
+          <p style="font-size:12px; color:#d9c6c4; margin:10px 0 0; line-height:1.7;">
+            你已拒绝执行 <code>create_ticket</code>。系统未向数据库写入任何工单记录，仅保留本次检索到的知识库引用供你参考。你可以先补充现场日志后再重新发起任务。
+          </p>
+          <div class="approval-actions">
+            <button class="btn-secondary" onclick="setApprovalState('waiting')">重新打开审批卡演示</button>
+          </div>
+        `;
+      } else if (state === 'unknown') {
+        badge.className = 'status-badge waiting';
+        badge.textContent = '创建结果待确认 (P04)';
+        dot.className = 'step-dot waiting';
+        stepStatus.style.color = '#e1c58c';
+        stepStatus.textContent = '响应超时 · 结果待核实';
+
+        card.innerHTML = `
+          <div class="approval-header" style="color:var(--warn-text);">
+            <span>⚠️ 创建结果待确认，请先核对工单记录 (P04 未知态防护)</span>
+            <span style="margin-left:auto; font-size:11px;">network_timeout</span>
+          </div>
+          <p style="font-size:12px; color:#e5dec9; margin:10px 0 0; line-height:1.7;">
+            审批请求已发出，但因网络中断或流读取超时，<strong>当前无法确认服务端是否已完成工单提交</strong>。<br/>
+            • 为避免误导，系统<strong>不会将此状态显示为“已创建”或“未创建”</strong>。<br/>
+            • 请先点击下方按钮前往「工单总览」核查；即使再次点击同步状态，服务端也会通过 <code>idempotency_key: 94e2b71c:tool-2</code> 保证不会创建第二张重复工单。
+          </p>
+          <div class="approval-actions">
+            <button class="btn-secondary" onclick="setApprovalState('created')">模拟刷新状态（发现已幂等落库）</button>
+            <button class="btn-primary" onclick="switchTab('tickets', document.querySelectorAll('.nav-tab')[2])">前往「工单总览」核对 →</button>
+          </div>
+        `;
+      } else if (state === 'failed') {
+        badge.className = 'status-badge';
+        badge.textContent = '创建失败 · 明确未写入';
+        dot.className = 'step-dot denied';
+        stepStatus.style.color = '#e28f86';
+        stepStatus.textContent = '执行失败 (failed)';
+
+        card.innerHTML = `
+          <div class="approval-header" style="color:var(--danger-text);">
+            <span>✕ 创建失败，未创建工单 (P04 明确回滚态)</span>
+            <span style="margin-left:auto; font-size:11px;">db_transaction_rolled_back</span>
+          </div>
+          <p style="font-size:12px; color:#d9c6c4; margin:10px 0 0; line-height:1.7;">
+            服务端确认数据库事务已回滚，<strong>当前未产生任何工单记录</strong>（原因：数据库连接瞬断）。你填写的标题与描述草稿已保留，可稍后重新发起。
+          </p>
+          <div class="approval-actions">
+            <button class="btn-secondary" onclick="setApprovalState('waiting')">返回审批卡重试</button>
+          </div>
+        `;
+      }
+    }
+
+    // 4. P02 & P03 Citation & Retrieval Diagnostics State Machine
+    let activeCitationId = 'cite-1';
+    const citationsData = [
+      {
+        id: 'cite-1',
+        chunk_id: 'chunk-8f3a',
+        title: '线上 5xx 故障分级与应急手册',
+        heading: '1. 首要检查项与升级条件',
+        method: 'hybrid (向量 + BM25 RRF)',
+        score: '0.032',
+        url: 'https://runbook.example.internal/5xx-guide',
+        snippet: '出现偶发 5xx 时，值班工程师应优先核查最近 30 分钟内是否有服务发布或配置变更...',
+        fullText: '【入库原文片段 · chunk-8f3a】\n# 线上 5xx 故障排查规范\n## 1. 首要检查项与升级条件\n出现偶发 5xx 时，值班工程师应优先核查最近 30 分钟内是否有服务发布或配置变更。若 5 分钟内错误率持续高于 5% 则升级为 P1；若低于 5% 且原因未明，应建立 P2 跟进工单并优先保留现场日志。'
+      },
+      {
+        id: 'cite-2',
+        chunk_id: 'chunk-2c91',
+        title: '线上 5xx 故障分级与应急手册',
+        heading: '2. 日志与连接池取证要求',
+        method: 'hybrid (向量 + BM25 RRF)',
+        score: '0.029',
+        url: 'https://runbook.example.internal/5xx-guide',
+        snippet: '收集 API 网关层 upstream 报错日志及 Pod 标准错误输出；若伴随超时，需核查数据库连接池...',
+        fullText: '【入库原文片段 · chunk-2c91】\n## 2. 日志与连接池取证要求\n在未获取 API 网关层 upstream 报错日志及 Pod 标准错误输出前，不得在工单中将根因武断标记为“下游数据库故障”，应在工单描述中注明“待补充现场日志核实”。'
+      }
+    ];
+
+    function setRetrievalState(mode, chipBtn) {
+      if (chipBtn) {
+        chipBtn.parentElement.querySelectorAll('.proto-chip').forEach(c => c.classList.remove('active'));
+        chipBtn.classList.add('active');
+      }
+      const container = document.getElementById('citationContainer');
+      const pill = document.getElementById('citeCountPill');
+
+      if (mode === 'hit') {
+        pill.textContent = '2 条命中';
+        container.innerHTML = citationsData.map(c => {
+          const expanded = c.id === activeCitationId;
+          return `
+            <article class="cite-card ${expanded ? 'active' : ''}" id="${c.id}">
+              <div class="cite-card-head" onclick="selectCitation('${c.id}')" style="cursor:pointer;">
+                <span>📄 ${c.title}</span>
+                <span style="color:var(--accent); font-weight:400;">${expanded ? '收起原文' : '查看原文'}</span>
+              </div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">章节：${c.heading}</div>
+              <div class="cite-meta">ID: ${c.chunk_id} · 方式: ${c.method} · score: ${c.score}</div>
+              <div style="margin-top:6px; color:#d0d6d0;">${c.snippet}</div>
+              <div style="margin-top:6px;"><a href="${c.url}" target="_blank" style="font-size:11px;">↗ 打开来源链接 (${c.url})</a></div>
+              ${expanded ? `<div class="cite-preview">${c.fullText}</div>` : ''}
+            </article>
+          `;
+        }).join('');
+      } else if (mode === 'empty') {
+        pill.textContent = '0 条 · no_documents';
+        container.innerHTML = `
+          <div class="cite-card" style="border-color:#5a523e; background:#26241d;">
+            <strong style="color:var(--warn-text);">📭 当前账号没有可引用资料 (status: no_documents)</strong>
+            <p style="margin:6px 0 10px; color:var(--text-muted); line-height:1.65;">
+              诊断原因：<code>empty_library</code>（这并非检索服务故障）。请先上传团队手册或规范文档，再发起知识问答。
+            </p>
+            <button class="btn-primary" style="width:100%;" onclick="switchTab('knowledge', document.querySelectorAll('.nav-tab')[1])">前往「知识库」上传第一篇文档 →</button>
+          </div>
+        `;
+      } else if (mode === 'nomatch') {
+        pill.textContent = '0 条 · no_match';
+        container.innerHTML = `
+          <div class="cite-card">
+            <strong style="color:#fff;">🔍 未找到能支持本问题的资料 (status: no_match)</strong>
+            <p style="margin:6px 0 0; color:var(--text-muted); line-height:1.65;">
+              诊断原因：已检索当前账号下的 3 篇文档（13 个切片），但向量与关键词均未命中相关内容。系统不会编造引用，建议调整提问关键词或补充对应文档。
+            </p>
+          </div>
+        `;
+      } else if (mode === 'error') {
+        pill.textContent = '异常 · unavailable';
+        container.innerHTML = `
+          <div class="cite-card" style="border-color:var(--danger-border); background:var(--danger-bg);">
+            <strong style="color:var(--danger-text);">⚠️ 资料检索服务暂不可用 (status: unavailable)</strong>
+            <p style="margin:6px 0 0; color:#e2c2bf; line-height:1.65;">
+              诊断原因：<code>retrieval_error</code>。当前无法核实知识库依据（<strong>不代表资料不存在</strong>）。请查看 Trace 回放诊断并稍后重试。
+            </p>
+          </div>
+        `;
+      }
+    }
+
+    function selectCitation(id) {
+      activeCitationId = (activeCitationId === id) ? null : id;
+      setRetrievalState('hit');
+    }
+
+    // 5. Trace Slider
+    function updateTraceSlider(val) {
+      const step = Number(val);
+      document.getElementById('traceStepLabel').textContent = `${step} / 6 节点`;
+      document.querySelectorAll('#traceTreeContainer .span-row').forEach(row => {
+        const s = Number(row.getAttribute('data-step'));
+        row.style.display = s <= step ? 'block' : 'none';
+      });
+    }
+
+    // 6. Modals
+    function openModal(id) { document.getElementById(id).classList.add('open'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+    // Init default views
+    setApprovalState('waiting');
+    setRetrievalState('hit');
+  </script>
+</body>
+</html>
