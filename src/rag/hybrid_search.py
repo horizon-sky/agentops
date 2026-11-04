@@ -171,7 +171,7 @@ async def hybrid_search(
             title=str(row["title"] or ""),
             source_url=str(row["source_url"] or ""),
             heading=str(row["heading"] or ""),
-            snippet=str(row["content"])[:400],
+            snippet=str(row["content"]),
             score=float(row["score"]),
             source="hybrid" if query_vector is not None else "bm25",
             retrieval_method="hybrid" if query_vector is not None else "keyword",

@@ -146,6 +146,7 @@ async def test_optional_model_failure_preserves_keyword_results(monkeypatch, fai
 
     owner_id, citation_id = str(uuid4()), str(uuid4())
     searches = []
+    full_content = "前置信息。" * 80 + "inventory-service p99 延迟 | 310 ms | 335 ms | 变化较小"
 
     class Connection:
         async def __aenter__(self):
@@ -159,7 +160,7 @@ async def test_optional_model_failure_preserves_keyword_results(monkeypatch, fai
             return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: [{
                 "citation_id": citation_id, "chunk_id": "hash", "document_id": str(uuid4()),
                 "title": "接口500排查", "source_url": "", "heading": "",
-                "content": "接口500为服务内部问题", "score": 0.016,
+                "content": full_content, "score": 0.016,
             }]))
 
     async def unavailable(*args, **kwargs):
@@ -177,6 +178,8 @@ async def test_optional_model_failure_preserves_keyword_results(monkeypatch, fai
         diagnostics=diagnosis,
     )
     assert hits[0].citation_id == citation_id
+    assert hits[0].snippet == full_content
+    assert "310 ms | 335 ms" in hits[0].snippet
     assert hits[0].retrieval_method == "keyword"
     assert searches[0][1]["owner_id"] == owner_id
     assert "d.owner_id = CAST(:owner_id AS uuid)" in searches[0][0]
