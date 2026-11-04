@@ -49,6 +49,7 @@ class ResumeIn(BaseModel):
     approval_id: str | None = Field(default=None, max_length=200)
     args: dict[str, Any] | None = None
     comment: str | None = None
+    confirmation_text: str | None = Field(default=None, max_length=100)
 
 
 class OkOut(BaseModel):

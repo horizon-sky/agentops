@@ -63,6 +63,7 @@ export function useRun() {
   const [retrieval, setRetrieval] = useState<RetrievalDiagnostic | null>(null);
   const [tools, setTools] = useState<ToolResultPayload[]>([]);
   const [hitl, setHitl] = useState<HitlPayload | null>(null);
+  const [confirmation, setConfirmation] = useState("");
   const [status, setStatus] = useState<"idle" | "running" | "waiting" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
@@ -179,6 +180,7 @@ export function useRun() {
       setRetrieval(null);
       setTools([]);
       setHitl(null);
+      setConfirmation("");
       setError(null);
       setStatus("running");
 
@@ -211,6 +213,7 @@ export function useRun() {
       setRetrieval(null);
       setTools([]);
       setHitl(null);
+      setConfirmation("");
       setError(null);
       setStatus("idle");
       window.localStorage.removeItem("agentops:last-run-id");
@@ -271,7 +274,7 @@ export function useRun() {
   }, [runId]);
 
   const approve = useCallback(
-    async (ok: boolean, args?: Record<string, unknown>) => {
+    async (ok: boolean, args?: Record<string, unknown>, confirmationText?: string) => {
       if (!runId) return;
       controllerRef.current?.abort();
       setError(null);
@@ -279,9 +282,10 @@ export function useRun() {
       controllerRef.current = controller;
       let resumed = false;
       try {
-        await resumeRun(runId, ok, args, hitl?.approval_id);
+        await resumeRun(runId, ok, args, hitl?.approval_id, confirmationText);
         if (controller.signal.aborted) return;
         resumed = true;
+        setConfirmation(confirmationText ?? "");
         setHitl(null);
         setStatus("running");
         patchStep("tools", { status: "running", detail: ok ? "已确认，继续执行" : "已拒绝" });
@@ -311,6 +315,7 @@ export function useRun() {
     retrieval,
     tools,
     hitl,
+    confirmation,
     status,
     error,
     totalMs,

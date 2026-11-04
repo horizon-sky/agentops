@@ -39,7 +39,8 @@ export default function Workbench() {
   const requestVersion = useRef(0);
   const run = useRun();
   const busy = run.status === "running" || run.status === "waiting";
-  const locked = busy || loading || submitting;
+  const confirmableTicket = run.status === "waiting" && run.hitl?.tool === "create_ticket";
+  const locked = (busy && !confirmableTicket) || loading || submitting;
 
   const restoreConversation = useCallback((records: RunSnapshot[]) => {
     setHistory(records.slice(1).reverse());
@@ -117,6 +118,19 @@ export default function Workbench() {
   };
 
   const submit = async (query: string) => {
+    if (confirmableTicket) {
+      setSubmitting(true);
+      setPageError("");
+      try {
+        const confirms = query.trim() === "确认创建";
+        await run.approve(confirms, run.hitl?.args, query.trim());
+      } catch (reason) {
+        setPageError(reason instanceof Error ? reason.message : "确认失败，请重试");
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
     if (locked) return;
     setSubmitting(true);
     setPageError("");
@@ -202,7 +216,7 @@ export default function Workbench() {
             {history.map((record) => <ConversationTurn key={record.id} query={record.query ?? "历史问题"} answer={record.answer ?? ""} citations={record.citations ?? []} status={record.status === "failed" ? "error" : "done"} onInspect={() => inspect(record)} onCitation={(id) => inspect(record, id)} />)}
 
             {run.query ? (
-              <ConversationTurn query={run.query} answer={run.answer} citations={run.citations} status={run.status} plan={run.plan} steps={run.steps} onInspect={() => inspect(null)} onCitation={(id) => inspect(null, id)}>
+              <ConversationTurn query={run.query} confirmation={run.confirmation} answer={run.answer} citations={run.citations} status={run.status} plan={run.plan} steps={run.steps} onInspect={() => inspect(null)} onCitation={(id) => inspect(null, id)}>
                 {run.status === "waiting" && run.hitl ? <ApprovalCard key={run.runId + ":" + run.hitl.tool} tool={run.hitl.tool} args={run.hitl.args} onResolve={run.approve} /> : null}
                 {run.status === "waiting" && !run.hitl ? <p role="status" className="mt-4 text-xs text-muted">正在恢复待确认的操作内容…</p> : null}
                 {run.error ? <div role="alert" className="chat-error"><AlertCircle size={15} className="shrink-0" /><span>{run.error}</span></div> : null}
@@ -213,7 +227,7 @@ export default function Workbench() {
         </div>
 
         <div className="composer-dock">
-          <Composer value={draft} onChange={setDraft} running={run.status === "running"} waiting={run.status === "waiting"} disabled={loading || submitting} onSubmit={(query) => void submit(query)} onStop={() => void run.stop()} />
+          <Composer value={draft} onChange={setDraft} running={run.status === "running"} waiting={run.status === "waiting" && !confirmableTicket} confirmOnly={confirmableTicket} disabled={loading || submitting} onSubmit={(query) => void submit(query)} onStop={() => void run.stop()} />
           <p className="composer-note">每次提问独立执行，请补充必要背景。关键结论请核对引用原文。</p>
         </div>
       </main>

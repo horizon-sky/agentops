@@ -33,6 +33,15 @@ router = APIRouter(prefix="/runs", tags=["runs"], dependencies=[Depends(current_
 _tasks: dict[str, asyncio.Task[None]] = {}
 
 
+def _validate_approval_text(approval: dict[str, object], payload: ResumeIn) -> None:
+    if (
+        approval.get("tool") == "create_ticket"
+        and payload.ok
+        and payload.confirmation_text != "确认创建"
+    ):
+        raise HTTPException(400, "创建工单必须通过后续消息单独发送“确认创建”")
+
+
 async def _persist_run_result(run_id: str, settings: Settings, event: AgentEvent) -> None:
     if (
         event.type not in {"retrieve", "done", "plan", "hitl_request", "tool_result"}
@@ -248,6 +257,7 @@ async def resume_run(
 
     if not payload.approval_id or payload.approval_id != (run.approval or {}).get("approval_id"):
         raise HTTPException(409, "审批已过期或与当前操作不匹配")
+    _validate_approval_text(run.approval or {}, payload)
 
     payload_dict = {
         "ok": payload.ok,

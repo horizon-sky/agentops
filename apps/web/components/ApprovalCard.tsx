@@ -27,9 +27,9 @@ export default function ApprovalCard({ tool, args, onResolve }: {
         <span className="ml-auto text-[11px] font-normal text-muted">等待确认</span>
       </div>
       <p className="mt-2 text-xs leading-6 text-muted">
-        {ticket ? "请核对标题、描述和优先级。确认后，这张工单将保存到工单总览。" : "请核对操作内容。确认后才会执行，你也可以拒绝。"}
+        {ticket ? "工单草稿已生成。请核对标题、描述和优先级；本卡片不会直接创建工单。只有你后续单独发送“确认创建”才会写入，也可以拒绝本次操作。" : "请核对操作内容。确认后才会执行，你也可以拒绝。"}
       </p>
-      <fieldset disabled={submitting} className="mt-4 space-y-3">
+      <fieldset disabled={submitting || ticket} className="mt-4 space-y-3">
         {Object.entries(draft).filter(([key]) => key !== "idempotency_key").map(([key, value]) => (
           <label key={key} className="block text-xs text-muted">
             {ticket ? ({ title: "标题", detail: "描述", severity: "优先级" } as Record<string, string>)[key] ?? key : key}
@@ -44,11 +44,13 @@ export default function ApprovalCard({ tool, args, onResolve }: {
             )}
           </label>
         ))}
-        <div className="flex flex-wrap justify-end gap-2 pt-2">
-          <button type="button" onClick={() => void resolve(false)} className="approval-deny"><X size={14} />拒绝操作</button>
-          <button type="button" onClick={() => void resolve(true)} disabled={submitting || (ticket && !String(draft.title ?? "").trim())} className="approval-confirm"><Check size={14} />{submitting ? "正在提交…" : ticket ? "确认创建" : "确认执行"}</button>
-        </div>
       </fieldset>
+      <div className="flex flex-wrap justify-end gap-2 pt-2">
+        {ticket ? <button type="button" onClick={() => void resolve(false)} disabled={submitting} className="approval-deny"><X size={14} />拒绝创建</button> : <>
+          <button type="button" onClick={() => void resolve(false)} disabled={submitting} className="approval-deny"><X size={14} />拒绝操作</button>
+          <button type="button" onClick={() => void resolve(true)} disabled={submitting} className="approval-confirm"><Check size={14} />{submitting ? "正在提交…" : "确认执行"}</button>
+        </>}
+      </div>
     </section>
   );
 }

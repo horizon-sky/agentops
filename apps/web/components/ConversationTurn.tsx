@@ -6,8 +6,9 @@ import MessageContent from "@/components/MessageContent";
 import type { Citation, PlanStep } from "@/lib/types";
 import type { TimelineStep } from "@/lib/useRun";
 
-export default function ConversationTurn({ query, answer, citations, status, plan = [], steps = [], children, onCitation, onInspect }: {
+export default function ConversationTurn({ query, confirmation, answer, citations, status, plan = [], steps = [], children, onCitation, onInspect }: {
   query: string;
+  confirmation?: string;
   answer: string;
   citations: Citation[];
   status: string;
@@ -25,6 +26,7 @@ export default function ConversationTurn({ query, answer, citations, status, pla
   return (
     <article className="conversation-turn">
       <div className="user-message"><span className="sr-only">你：</span>{query}</div>
+      {confirmation ? <div className="user-message"><span className="sr-only">你：</span>{confirmation}</div> : null}
       <div className="agent-message">
         <div className="agent-avatar"><Terminal size={16} /></div>
         <div className="min-w-0 flex-1">

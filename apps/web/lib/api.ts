@@ -71,10 +71,11 @@ export function resumeRun(
   ok: boolean,
   args?: Record<string, unknown>,
   approvalId?: string,
+  confirmationText?: string,
 ): Promise<{ ok: boolean; detail?: string }> {
   return request(`/runs/${runId}/resume`, {
     method: "POST",
-    body: JSON.stringify({ ok, args, approval_id: approvalId }),
+    body: JSON.stringify({ ok, args, approval_id: approvalId, confirmation_text: confirmationText }),
   });
 }
 

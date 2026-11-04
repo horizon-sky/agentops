@@ -5,6 +5,7 @@ import { ArrowUp, Square } from "lucide-react";
 export default function Composer({
   running,
   waiting,
+  confirmOnly = false,
   disabled,
   value,
   onChange,
@@ -13,6 +14,7 @@ export default function Composer({
 }: {
   running: boolean;
   waiting: boolean;
+  confirmOnly?: boolean;
   disabled: boolean;
   value: string;
   onChange: (value: string) => void;
@@ -21,7 +23,7 @@ export default function Composer({
 }) {
   const submit = () => {
     const query = value.trim();
-    if (!query || running || waiting || disabled) return;
+    if (!query || running || (waiting && !confirmOnly) || disabled) return;
     onSubmit(query);
     onChange("");
   };
@@ -39,12 +41,12 @@ export default function Composer({
             submit();
           }
         }}
-        disabled={waiting || disabled}
-        placeholder={waiting ? "请先确认或拒绝上方操作，再发送新问题" : "询问已入库的资料，或描述需要跟进的工单…"}
+        disabled={(waiting && !confirmOnly) || disabled}
+        placeholder={confirmOnly ? "单独发送“确认创建”以写入这张工单" : waiting ? "请先确认或拒绝上方操作，再发送新问题" : "询问已入库的资料，或描述需要跟进的工单…"}
         className="chat-input"
       />
       <div className="flex items-center justify-between gap-3 px-3 pb-3">
-        <span className="text-[11px] text-muted">{waiting ? "操作暂停，等待你的确认" : "Enter 发送 · Shift + Enter 换行"}</span>
+        <span className="text-[11px] text-muted">{confirmOnly ? "仅发送“确认创建”会执行写入" : waiting ? "操作暂停，等待你的确认" : "Enter 发送 · Shift + Enter 换行"}</span>
       {running ? (
         <button
           type="button"
@@ -60,7 +62,7 @@ export default function Composer({
         onClick={submit}
         aria-label="发送问题"
         title="发送问题"
-        disabled={waiting || disabled || value.trim().length === 0}
+        disabled={(waiting && !confirmOnly) || disabled || value.trim().length === 0}
         className="chat-send"
       >
         <ArrowUp size={18} />
