@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
@@ -19,6 +19,9 @@ class IntentOut(BaseModel):
     intent: str = Field(default="general")
     confident: bool = Field(default=True)
     reason: str = Field(default="")
+    requested_tools: list[
+        Literal["query_metrics", "search_code", "create_ticket", "draft_report"]
+    ] = Field(default_factory=list)
 
 
 RULES: list[tuple[tuple[str, ...], str]] = [
@@ -47,6 +50,7 @@ async def classify(state: AgentState, config: Any | None = None) -> dict[str, An
     timer = Timer()
 
     intent, confident, reason = "general", True, ""
+    requested_tools: list[str] = []
     if llm is not None:
         try:
             result = await llm.acomplete(
@@ -59,6 +63,7 @@ async def classify(state: AgentState, config: Any | None = None) -> dict[str, An
             parsed = None
         if parsed is not None:
             intent, confident, reason = parsed.intent, parsed.confident, parsed.reason
+            requested_tools = parsed.requested_tools if confident else []
         else:
             intent, reason = rule_intent(state["query"]), "模型未返回结构化结果，使用规则兜底"
 
@@ -101,6 +106,7 @@ async def classify(state: AgentState, config: Any | None = None) -> dict[str, An
         )
     return {
         "intent": intent,
+        "requested_tools": requested_tools if intent != "injection" else [],
         "confident": confident,
         **({"answer": CLARIFICATION_MESSAGE} if not confident else {}),
         "execution_ms": state.get("execution_ms", 0) + timer.ms,

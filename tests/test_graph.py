@@ -50,10 +50,30 @@ async def test_graph_compiles_with_memory_checkpoint() -> None:
 
 
 async def test_graph_run_emits_plan_and_done_offline() -> None:
+    from src.agent.model import ModelResult
+    from src.agent.nodes.classify import IntentOut
+    from src.agent.nodes.review import ReviewOut
+
+    class IncidentLLM:
+        async def acomplete(self, messages, tier="cheap", response_model=None):
+            if response_model is IntentOut:
+                return ModelResult(
+                    parsed=IntentOut(
+                        intent="incident", requested_tools=["query_metrics", "search_code"]
+                    )
+                )
+            if response_model is ReviewOut:
+                return ModelResult(parsed=ReviewOut(sufficient=False))
+            return ModelResult()
+
+        async def astream(self, messages, tier="strong"):
+            yield "已收集证据"
+
     settings = Settings(_env_file=None)
     collector = Collector()
     runner = GraphRunner(settings)
-    await runner.run("run-graph-1", "订单服务 5xx 怎么排查？", collector)
+    runner.llm = IncidentLLM()
+    await runner.run("run-graph-1", "查询故障指标并搜索源码", collector)
 
     assert "plan" in collector.types
     assert "retrieve" in collector.types
@@ -137,6 +157,50 @@ async def test_rejected_write_tool_is_never_executed(monkeypatch) -> None:
         event.type == "tool_result" and event.payload.get("error") == "用户拒绝或未确认"
         for event in collector.events
     )
+
+
+async def test_ticket_draft_request_waits_for_confirmation_before_write(monkeypatch) -> None:
+    from src.agent.model import ModelResult
+    from src.agent.nodes.classify import IntentOut
+    from src.agent.nodes.review import ReviewOut
+    from src.agent.state import ToolResult
+    from src.tools.registry import ToolRegistry
+
+    calls = []
+
+    async def call(self, name, args):
+        calls.append((name, args))
+        return ToolResult(name=name, args=args, ok=True, output={"ticket_id": "OPS-1"})
+
+    class TicketLLM:
+        async def acomplete(self, messages, tier="cheap", response_model=None):
+            if response_model is IntentOut:
+                return ModelResult(
+                    parsed=IntentOut(intent="ticket", requested_tools=["create_ticket"])
+                )
+            if response_model is ReviewOut:
+                return ModelResult(parsed=ReviewOut())
+            return ModelResult()
+
+        async def astream(self, messages, tier="strong"):
+            yield "工单草稿"
+
+    monkeypatch.setattr(ToolRegistry, "call", call)
+    runner = GraphRunner(Settings(_env_file=None))
+    runner.llm = TicketLLM()
+    collector = Collector()
+    await runner.run(
+        "draft-ticket-awaiting-confirmation",
+        "根据现有信息拟一张 P2 跟进工单，先展示标题、描述和优先级，等待我确认后再创建。",
+        collector,
+        user_id="alice",
+    )
+
+    assert await runner.awaiting_approval("draft-ticket-awaiting-confirmation")
+    approval = collector.payload_of("hitl_request")
+    assert approval["tool"] == "create_ticket"
+    assert approval["args"]["severity"] == "P2"
+    assert calls == []
 
 
 async def test_only_checkpoint_owner_can_approve_write_tools(monkeypatch) -> None:

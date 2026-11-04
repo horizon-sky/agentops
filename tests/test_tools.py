@@ -36,7 +36,13 @@ def test_ticket_priority_in_chinese_requests(query, severity) -> None:
 
     ticket = next(
         call
-        for call in _planned_calls({"intent": "ticket", "query": query})
+        for call in _planned_calls(
+            {
+                "intent": "ticket",
+                "query": query,
+                "requested_tools": ["create_ticket"],
+            }
+        )
         if call["name"] == "create_ticket"
     )
     assert ticket["args"] == {"title": query, "detail": query, "severity": severity}
@@ -48,6 +54,38 @@ async def test_read_tool_returns_structured_result() -> None:
     assert result.ok is True
     assert result.risk == "read"
     assert result.output["service"] == "order-service"  # type: ignore[index]
+
+
+def test_answer_tool_summary_preserves_complete_metrics_result():
+    from src.agent.nodes.answer import _build_tool_summary
+
+    summary = _build_tool_summary(
+        {
+            "tool_results": [
+                {
+                    "name": "query_metrics",
+                    "ok": True,
+                    "output": {
+                        "service": "order-service",
+                        "window": "1h",
+                        "note": "样例指标数据，不代表实时监控结果",
+                        "series": [
+                            {"metric": "http_5xx_rate", "points": [0.002, 0.019, 0.058]},
+                            {"metric": "p99_latency_ms", "points": [220, 480, 1250, 1100, 690]},
+                            {"metric": "db_pool_usage", "points": [0.45, 0.72, 0.96, 0.94, 0.77]},
+                            {"metric": "complete_after_old_limit", "points": ["x" * 2400]},
+                        ],
+                    },
+                }
+            ],
+        }
+    )
+
+    assert '"metric": "p99_latency_ms"' in summary
+    assert '"points": [220, 480, 1250, 1100, 690]' in summary
+    assert '"metric": "db_pool_usage"' in summary
+    assert '"note": "样例指标数据，不代表实时监控结果"' in summary
+    assert '"metric": "complete_after_old_limit"' in summary
 
 
 async def test_search_code_actually_greps_repository() -> None:

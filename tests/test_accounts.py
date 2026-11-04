@@ -463,7 +463,7 @@ async def test_local_api_restores_plan_and_resumes_approval_once(
     approval_id = snapshot["approval"]["approval_id"]
     write = next(step for step in snapshot["plan"]["steps"] if step["tool"] == "create_ticket")
     assert approval_id == f"{run_id}:{write['id']}"
-    assert any(result["name"] == "search_code" for result in snapshot["tool_results"])
+    assert not any(result["name"] == "search_code" for result in snapshot["tool_results"])
     async with factory() as db:
         assert await db.scalar(select(Ticket)) is None
     assert (await client.post(
@@ -637,7 +637,7 @@ async def test_ticket_approval_persists_once_and_archived_retry_fails(account_ap
         if event.type == "tool_result" and event.payload["name"] == "create_ticket"
     )
     assert result["ok"] is True
-    assert result["args"]["idempotency_key"] == f"{run_id}:tool-1"
+    assert result["args"]["idempotency_key"] == f"{run_id}:tool-0"
     from src.agent.context import bind
     from src.tools.builtin import create_ticket
 

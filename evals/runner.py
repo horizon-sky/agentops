@@ -44,15 +44,37 @@ def _run(coro: object) -> int:
     return asyncio.run(coro)  # type: ignore[arg-type]
 
 
+def _normalize_case(case: dict[str, object], dataset_id: object) -> dict[str, object]:
+    if dataset_id != "agentops_eval_v1":
+        return case
+    expected = set(case.get("expected_tools", []))
+    optional = set(case.get("optional_tools", []))
+    known_tools = {"query_metrics", "search_code", "create_ticket", "draft_report"}
+    forbidden = set(case.get("forbidden_tools", [])) | (known_tools - expected - optional)
+    return {
+        **case,
+        "expect_intent": case.get("expected_intent"),
+        "expect_tools": list(expected),
+        "forbidden_tools": sorted(forbidden),
+        "require_citation": case.get("citation_required", False),
+        "expect_hitl": case.get("hitl_required", False),
+        "expect_refusal": case.get("expected_intent") == "injection",
+    }
+
+
 class Collector:
-    def __init__(self) -> None:
+    def __init__(self, started_at: datetime) -> None:
+        self.started_at = started_at
         self.intent: str | None = None
         self.tools: list[str] = []
+        self.tool_events: list[dict[str, object]] = []
         self.retrieve_hits = 0
         self.citations = 0
+        self.retrieval: dict[str, object] = {}
+        self.citation_refs: list[dict[str, object]] = []
         self.hitl = False
         self.answer = ""
-        self.tokens = 0
+        self.first_answer_ms: int | None = None
         self.approval: dict[str, object] = {}
         self.approval_count = 0
         self.retry_count = 0
@@ -67,13 +89,49 @@ class Collector:
                 self.intent = payload["intent"]
         elif event.type == "retrieve":
             self.retrieve_hits = int(payload.get("hits", 0) or 0)
+            retrieval = payload.get("retrieval")
+            if isinstance(retrieval, dict):
+                self.retrieval = {
+                    key: retrieval.get(key)
+                    for key in ("mode", "status", "reason", "method", "degraded", "warnings")
+                    if key in retrieval
+                }
             citations = payload.get("citations")
             if isinstance(citations, list):
                 self.citations = len(citations)
+                self.citation_refs = [
+                    {
+                        key: item.get(key)
+                        for key in ("citation_id", "chunk_id", "score", "retrieval_method")
+                        if key in item
+                    }
+                    for item in citations
+                    if isinstance(item, dict)
+                ]
         elif event.type == "tool_result":
             name = payload.get("name")
             if isinstance(name, str):
                 self.tools.append(name)
+            result = {
+                key: payload.get(key)
+                for key in (
+                    "name", "step_id", "args", "ok", "error", "ms", "attempts", "risk", "denied"
+                )
+                if key in payload
+            }
+            if "output" in payload:
+                serialized_output = json.dumps(
+                    payload["output"], ensure_ascii=False, default=str
+                )
+                result["output"] = serialized_output[:2000]
+                result["output_truncated"] = len(serialized_output) > 2000
+            self.tool_events.append(result)
+        elif event.type == "token":
+            delta = payload.get("delta")
+            if isinstance(delta, str) and delta.strip() and self.first_answer_ms is None:
+                self.first_answer_ms = max(
+                    0, int((event.ts - self.started_at).total_seconds() * 1000)
+                )
         elif event.type == "hitl_request":
             self.hitl = True
             self.approval = payload
@@ -127,34 +185,23 @@ async def _finish_eval_run(run_id: str, settings: Settings, status: str) -> None
 async def run_case(
     case: dict[str, object], runner: GraphRunner, settings: Settings, user_id: str = ""
 ) -> dict[str, object]:
-    collector = Collector()
+    started_at = datetime.now(UTC)
+    collector = Collector(started_at)
     run_id = str(uuid.uuid4())
     started = perf_counter()
-
-    pending = None
-    if case.get("expect_hitl"):
-        title = str(case["query"])[:40]
-        pending = [
-            {"name": "search_code", "args": {"query": title}},
-            {"name": "create_ticket", "args": {"title": title, "severity": "P1"}},
-        ]
 
     await _create_eval_run(run_id, str(case["query"]), settings, user_id)
     try:
         await runner.run(
-            run_id, str(case["query"]), collector, pending_calls=pending, user_id=user_id
+            run_id, str(case["query"]), collector, user_id=user_id
         )
-        while await runner.awaiting_approval(run_id):  # 评测中模拟人工审批通过
-            approve_args = {
-                "ok": True,
-                "args": {"title": str(case["query"])[:40]},
-                "approval_id": collector.approval.get("approval_id"),
-            }
-            await runner.resume(run_id, approve_args, collector, user_id=user_id)
+        approval_pending = await runner.awaiting_approval(run_id)
     except Exception:
         await _finish_eval_run(run_id, settings, "failed")
         raise
-    await _finish_eval_run(run_id, settings, "completed")
+    await _finish_eval_run(
+        run_id, settings, "awaiting_approval" if approval_pending else "completed"
+    )
 
     latency_ms = int((perf_counter() - started) * 1000)
     verdict = judge(
@@ -167,6 +214,8 @@ async def run_case(
             "hitl": collector.hitl,
             "answer": collector.answer,
             "approval_count": collector.approval_count,
+            "approval_pending": approval_pending,
+            "pending_approval": collector.approval,
             "retry_count": collector.retry_count,
             "events": collector.events,
         },
@@ -175,7 +224,28 @@ async def run_case(
     return {
         "id": case["id"],
         "query": case["query"],
+        "split": case.get("split"),
+        "expectations": {
+            key: case[key]
+            for key in (
+                "required_sources", "required_claims", "forbidden_claims",
+                "expected_tools", "optional_tools", "forbidden_tools", "tool_constraints",
+            )
+            if key in case
+        },
         "latency_ms": latency_ms,
+        "first_answer_ms": collector.first_answer_ms,
+        "first_answer_timing_scope": "graph_event_after_runner_start",
+        "approval_wait_ms": None,
+        "approval_pending": approval_pending,
+        "approval_timing_status": (
+            "awaiting_human_approval" if approval_pending else "not_required"
+        ),
+        "retrieval": collector.retrieval,
+        "citation_refs": collector.citation_refs,
+        "tool_events": collector.tool_events,
+        "token_usage": None,
+        "token_usage_status": "stream_usage_not_exposed_by_provider_interface",
         "tokens": None,
         "cost_usd": None,
         **verdict,
@@ -184,17 +254,22 @@ async def run_case(
 
 async def main(
     limit: int | None, offset: int, user_id: str = "", environment: str = "local",
-    *, settings: Settings | None = None,
+    *, settings: Settings | None = None, dataset_path: Path | None = None,
+    include_holdout: bool = False,
 ) -> int:
     settings = settings or get_settings()
     if settings.app_env == "production":
         raise ValueError("Run evaluations in an isolated environment, not production")
     if offset < 0 or (limit is not None and limit <= 0):
         raise ValueError("Offset must be non-negative and limit must be positive")
-    data = json.loads(GOLDEN.read_text(encoding="utf-8"))
-    cases = data["cases"][offset:]
+    data = json.loads((dataset_path or GOLDEN).read_text(encoding="utf-8"))
+    all_cases = data["cases"]
+    if data.get("dataset_id") == "agentops_eval_v1" and not include_holdout:
+        all_cases = [case for case in all_cases if case.get("split") == "dev"]
+    cases = all_cases[offset:]
     if limit:
         cases = cases[:limit]
+    cases = [_normalize_case(case, data.get("dataset_id")) for case in cases]
 
     if not cases:
         raise ValueError("No evaluation cases selected")
@@ -258,5 +333,9 @@ if __name__ == "__main__":
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--user-id", default="", help="Verified account owning evaluation data")
     parser.add_argument("--environment", choices=["local", "staging", "ci"], default="local")
+    parser.add_argument("--include-holdout", action="store_true")
     args = parser.parse_args()
-    raise SystemExit(_run(main(args.limit, args.offset, args.user_id, args.environment)))
+    raise SystemExit(_run(main(
+        args.limit, args.offset, args.user_id, args.environment,
+        include_holdout=args.include_holdout,
+    )))

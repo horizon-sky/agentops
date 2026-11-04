@@ -40,7 +40,9 @@ async def review(state: AgentState, config: Any | None = None) -> dict[str, Any]
             {
                 "name": r["name"],
                 "ok": r["ok"],
-                "output": str(r.get("output"))[:1200],
+                "output": json.dumps(
+                    r.get("output"), ensure_ascii=False, sort_keys=True, default=str
+                ),
                 "error": str(r.get("error") or "")[:400],
             }
             for r in state.get("tool_results", [])[:8]

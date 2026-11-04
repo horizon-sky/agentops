@@ -15,17 +15,29 @@ from src.agent.state import AgentState
 from src.agent.tracing import Timer
 
 _INTENT_TOOLS = {
-    "incident": ["query_metrics", "search_code"],
+    "incident": [],
     "code": ["search_code"],
     "knowledge": [],
-    "ticket": ["search_code", "create_ticket"],
-    "general": ["search_code"],
+    "ticket": [],
+    "general": [],
 }
 
 
 def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
     query = state.get("query", "")
     severity = re.search(r"(?<![A-Za-z0-9])P[0-3](?![A-Za-z0-9])", query, re.IGNORECASE)
+    intent = state.get("intent")
+    allowed = {
+        "incident": {"query_metrics", "search_code"},
+        "code": {"search_code"},
+        "ticket": {"query_metrics", "search_code", "create_ticket", "draft_report"},
+        "knowledge": set(),
+        "general": set(),
+    }.get(intent, set())
+    tools = [name for name in dict.fromkeys(state.get("requested_tools", [])) if name in allowed]
+    if intent == "code" and "search_code" not in tools:
+        tools.append("search_code")
+    tools = list(dict.fromkeys([*_INTENT_TOOLS.get(intent, []), *tools]))
     return [
         {
             "name": name,
@@ -41,7 +53,7 @@ def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
                 else {"query": query}
             ),
         }
-        for name in _INTENT_TOOLS.get(state.get("intent", "general"), [])
+        for name in tools
     ]
 
 

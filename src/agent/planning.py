@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -62,26 +61,6 @@ def static_plan(state: dict[str, Any]) -> ExecutionPlan:
         )
         if not write:
             read_ids.append(f"tool-{index}")
-    if (
-        intent != "injection"
-        and re.search(
-            r"(?:生成|撰写|编写|起草|输出|写|制作|整理).{0,12}报告"
-            r"|\b(?:draft|create|generate|write|produce)\b.{0,40}\breport\b",
-            query,
-            re.IGNORECASE,
-        )
-        and not any(s.tool == "draft_report" for s in steps)
-    ):
-        steps.append(
-            PlanStep(
-                id="report",
-                kind="tool",
-                goal="生成处理报告",
-                tool="draft_report",
-                args={"title": query[:300]},
-                depends_on=[s.id for s in steps],
-            )
-        )
     steps.append(
         PlanStep(
             id="answer", kind="answer", goal="基于现有证据回答", depends_on=[s.id for s in steps]

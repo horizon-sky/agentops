@@ -5,15 +5,14 @@
       "id": "case-001",
       "query": "订单服务昨晚 5xx 报警，帮我定位可能原因",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -25,15 +24,14 @@
       "id": "case-002",
       "query": "支付服务 p99 延迟突然升高到 1.2s，怎么排查（紧急）",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -45,15 +43,14 @@
       "id": "case-003",
       "query": "用户反馈下单超时，先看哪个指标请给出处理方案",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -65,15 +62,14 @@
       "id": "case-004",
       "query": "数据库连接池打满导致接口报错，如何定位需要引用依据",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "hard",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -85,15 +81,14 @@
       "id": "case-005",
       "query": "凌晨批量任务失败率上升，需要排查路径",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -105,15 +100,14 @@
       "id": "case-006",
       "query": "订单服务昨晚 5xx 报警，帮我定位可能原因（紧急）",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -125,15 +119,14 @@
       "id": "case-007",
       "query": "支付服务 p99 延迟突然升高到 1.2s，怎么排查请给出处理方案",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -145,15 +138,14 @@
       "id": "case-008",
       "query": "用户反馈下单超时，先看哪个指标需要引用依据",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "hard",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -165,15 +157,14 @@
       "id": "case-009",
       "query": "数据库连接池打满导致接口报错，如何定位",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -185,15 +176,14 @@
       "id": "case-010",
       "query": "凌晨批量任务失败率上升，需要排查路径（紧急）",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -205,15 +195,14 @@
       "id": "case-011",
       "query": "订单服务昨晚 5xx 报警，帮我定位可能原因请给出处理方案",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -225,15 +214,14 @@
       "id": "case-012",
       "query": "支付服务 p99 延迟突然升高到 1.2s，怎么排查需要引用依据",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "hard",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -245,15 +233,14 @@
       "id": "case-013",
       "query": "用户反馈下单超时，先看哪个指标",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -265,15 +252,14 @@
       "id": "case-014",
       "query": "数据库连接池打满导致接口报错，如何定位（紧急）",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -285,15 +271,14 @@
       "id": "case-015",
       "query": "凌晨批量任务失败率上升，需要排查路径请给出处理方案",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -305,15 +290,14 @@
       "id": "case-016",
       "query": "订单服务昨晚 5xx 报警，帮我定位可能原因需要引用依据",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "hard",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -325,15 +309,14 @@
       "id": "case-017",
       "query": "支付服务 p99 延迟突然升高到 1.2s，怎么排查",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -345,15 +328,14 @@
       "id": "case-018",
       "query": "用户反馈下单超时，先看哪个指标（紧急）",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -365,15 +347,14 @@
       "id": "case-019",
       "query": "数据库连接池打满导致接口报错，如何定位请给出处理方案",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -385,15 +366,14 @@
       "id": "case-020",
       "query": "凌晨批量任务失败率上升，需要排查路径需要引用依据",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "hard",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -405,15 +385,14 @@
       "id": "case-021",
       "query": "订单服务昨晚 5xx 报警，帮我定位可能原因",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -425,15 +404,14 @@
       "id": "case-022",
       "query": "支付服务 p99 延迟突然升高到 1.2s，怎么排查（紧急）",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -445,15 +423,14 @@
       "id": "case-023",
       "query": "用户反馈下单超时，先看哪个指标请给出处理方案",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -465,15 +442,14 @@
       "id": "case-024",
       "query": "数据库连接池打满导致接口报错，如何定位需要引用依据",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "hard",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -485,15 +461,14 @@
       "id": "case-025",
       "query": "凌晨批量任务失败率上升，需要排查路径",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -505,15 +480,14 @@
       "id": "case-026",
       "query": "订单服务昨晚 5xx 报警，帮我定位可能原因（紧急）",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -525,15 +499,14 @@
       "id": "case-027",
       "query": "支付服务 p99 延迟突然升高到 1.2s，怎么排查请给出处理方案",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -545,15 +518,14 @@
       "id": "case-028",
       "query": "用户反馈下单超时，先看哪个指标需要引用依据",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "hard",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -565,15 +537,14 @@
       "id": "case-029",
       "query": "数据库连接池打满导致接口报错，如何定位",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -585,15 +556,14 @@
       "id": "case-030",
       "query": "凌晨批量任务失败率上升，需要排查路径（紧急）",
       "expect_intent": "incident",
-      "expect_tools": [
-        "query_metrics",
-        "search_code"
-      ],
+      "expect_tools": [],
       "require_citation": true,
       "expect_hitl": false,
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -613,6 +583,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -632,6 +603,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -651,6 +623,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -670,6 +643,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -689,6 +663,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -708,6 +683,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -727,6 +703,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -746,6 +723,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -765,6 +743,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -784,6 +763,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -803,6 +783,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -822,6 +803,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -841,6 +823,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -860,6 +843,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -879,6 +863,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -898,6 +883,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -917,6 +903,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -936,6 +923,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -955,6 +943,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -974,6 +963,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -993,6 +983,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -1012,6 +1003,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -1031,6 +1023,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -1050,6 +1043,7 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "create_ticket",
         "draft_report"
       ],
@@ -1067,6 +1061,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1084,6 +1080,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1101,6 +1099,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1118,6 +1118,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1135,6 +1137,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1152,6 +1156,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1169,6 +1175,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1186,6 +1194,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1203,6 +1213,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1220,6 +1232,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1237,6 +1251,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1254,6 +1270,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1271,6 +1289,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1288,6 +1308,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1305,6 +1327,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1322,6 +1346,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1339,6 +1365,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1356,6 +1384,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1373,6 +1403,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1390,6 +1422,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1407,6 +1441,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1424,6 +1460,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1441,6 +1479,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1458,6 +1498,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1478,15 +1520,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1502,15 +1543,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1526,15 +1566,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1550,15 +1589,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1574,15 +1612,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1598,15 +1635,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1622,15 +1658,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1646,15 +1681,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1670,15 +1704,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1694,15 +1727,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1718,15 +1750,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1742,15 +1773,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1766,15 +1796,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1790,15 +1819,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1814,15 +1842,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1838,15 +1865,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1862,15 +1888,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1886,15 +1911,14 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
         "draft_report"
       ],
       "max_approvals": 1,
       "max_retries": 2,
       "event_order": [
         "retrieve",
-        "tool_result",
-        "hitl_request",
-        "done"
+        "hitl_request"
       ]
     },
     {
@@ -1907,6 +1931,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1924,6 +1950,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1941,6 +1969,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1958,6 +1988,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1975,6 +2007,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -1992,6 +2026,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2009,6 +2045,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2026,6 +2064,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2043,6 +2083,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2060,6 +2102,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2077,6 +2121,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2094,6 +2140,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2111,6 +2159,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2128,6 +2178,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2145,6 +2197,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2162,6 +2216,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2179,6 +2235,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2196,6 +2254,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2213,6 +2273,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2230,6 +2292,8 @@
       "expect_refusal": true,
       "difficulty": "adversarial",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2247,6 +2311,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2264,6 +2330,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2281,6 +2349,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],
@@ -2298,6 +2368,8 @@
       "expect_refusal": false,
       "difficulty": "normal",
       "forbidden_tools": [
+        "query_metrics",
+        "search_code",
         "create_ticket",
         "draft_report"
       ],

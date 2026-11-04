@@ -22,16 +22,79 @@ from tests.test_graph import Collector
         ("knowledge", [], True),
         ("code", ["search_code"], False),
         ("general", [], False),
-        ("ticket", ["search_code", "create_ticket"], True),
-        ("incident", ["query_metrics", "search_code"], True),
+        ("ticket", [], True),
+        ("incident", [], True),
     ],
 )
 def test_static_routes(intent, tools, retrieve):
-    state = {"intent": intent, "query": "问题", "flags": {"routing": True}}
+    query = "incident" if intent == "incident" else "问题"
+    state = {
+        "intent": intent,
+        "query": query,
+        "requested_tools": ["search_code"] if intent == "code" else [],
+        "flags": {"routing": True},
+    }
     plan = static_plan(state)
     validate_plan(plan, state, ToolRegistry(Settings(_env_file=None)))
     assert [s.tool for s in plan.steps if s.kind == "tool"] == tools
     assert any(s.kind == "retrieve" for s in plan.steps) == retrieve
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "根据现有信息拟一张 P2 跟进工单，先展示标题、描述和优先级，等待我确认后再创建。",
+            ["create_ticket"],
+        ),
+        ("将刚才工单优先级改为 P1，但先不要创建，等我确认。", []),
+        ("目前没有发布记录、日志和 Trace。请给出下一步排查清单。", []),
+    ],
+)
+def test_ticket_tool_plan_follows_classifier_selection(query, expected):
+    state = {
+        "intent": "ticket",
+        "query": query,
+        "requested_tools": expected,
+        "flags": {"routing": True},
+    }
+    plan = static_plan(state)
+    assert [step.tool for step in plan.steps if step.kind == "tool"] == expected
+
+
+def test_dynamic_plan_cannot_add_unrequested_metrics_tool():
+    state = {
+        "intent": "incident",
+        "query": "这组指标能否证明数据库连接池是故障根因？",
+        "flags": {"routing": True},
+    }
+    plan = ExecutionPlan(
+        steps=[
+            PlanStep(id="retrieve", kind="retrieve", goal="检索", args={"query": state["query"]}),
+            PlanStep(
+                id="metrics",
+                kind="tool",
+                goal="指标",
+                tool="query_metrics",
+                args={"service": "order-service", "window": "1h"},
+                depends_on=["retrieve"],
+            ),
+            PlanStep(id="answer", kind="answer", goal="回答", depends_on=["retrieve", "metrics"]),
+        ]
+    )
+
+    with pytest.raises(ValueError, match="Tool outside intent policy"):
+        validate_plan(plan, state, ToolRegistry(Settings(_env_file=None)))
+
+
+def test_incident_tool_selection_requires_classifier_authorization():
+    query = "这组指标能否证明数据库连接池是故障根因？"
+    state = {"intent": "incident", "query": query, "flags": {"routing": True}}
+    assert not any(step.kind == "tool" for step in static_plan(state).steps)
+
+    state["requested_tools"] = ["query_metrics"]
+    plan = static_plan(state)
+    assert [step.tool for step in plan.steps if step.kind == "tool"] == ["query_metrics"]
 
 
 def test_cycles_and_unauthorized_tools_are_rejected():
@@ -67,19 +130,30 @@ async def test_general_skips_evidence():
 async def test_stale_approval_cannot_execute():
     collector = Collector()
     runner = GraphRunner(Settings(_env_file=None))
-    await runner.run("stale-approval", "建工单", collector, user_id="alice")
+    await runner.run(
+        "stale-approval",
+        "建工单",
+        collector,
+        pending_calls=[{"name": "create_ticket", "args": {"title": "建工单"}}],
+        user_id="alice",
+    )
     with pytest.raises(ValueError, match="approval_id"):
         await runner.resume(
             "stale-approval", {"ok": True, "approval_id": "old"}, collector, user_id="alice"
         )
     assert await runner.awaiting_approval("stale-approval")
-    assert collector.payload_of("hitl_request")["approval_id"] == "stale-approval:tool-1"
+    assert collector.payload_of("hitl_request")["approval_id"] == "stale-approval:tool-0"
     with pytest.raises(ValueError, match="approval_id"):
         await runner.resume("stale-approval", {"ok": True}, collector, user_id="alice")
 
 
 def test_retrieval_arguments_and_premature_write_are_rejected():
-    state = {"intent": "ticket", "query": "建单", "flags": {"routing": True}}
+    state = {
+        "intent": "ticket",
+        "query": "建单",
+        "requested_tools": ["create_ticket"],
+        "flags": {"routing": True},
+    }
     registry = ToolRegistry(Settings(_env_file=None))
     invalid = static_plan(state)
     invalid.steps[0].args = {"query": []}
@@ -170,13 +244,21 @@ async def test_missing_database_does_not_repeat_retrieval():
     assert "证据不足" in collector.payload_of("done")["answer"]
 
 
-@pytest.mark.parametrize(("query", "report"), [
-    ("解释报告模板", False), ("报告在哪里", False),
-    ("生成处理报告", True), ("Please draft a report", True),
-])
-def test_report_requires_explicit_creation_request(query, report):
-    plan = static_plan({"intent": "general", "query": query, "flags": {"routing": True}})
-    assert any(s.tool == "draft_report" for s in plan.steps) is report
+def test_tool_selection_is_limited_to_classifier_authorization():
+    state = {
+        "intent": "ticket",
+        "query": "解释报告模板，不要创建工单",
+        "requested_tools": ["draft_report", "query_metrics", "create_ticket"],
+        "flags": {"routing": True},
+    }
+    plan = static_plan(state)
+    assert [step.tool for step in plan.steps if step.kind == "tool"] == [
+        "draft_report",
+        "query_metrics",
+        "create_ticket",
+    ]
+    state["intent"] = "knowledge"
+    assert not any(step.kind == "tool" for step in static_plan(state).steps)
 
 
 async def test_execution_timeout_finalizes_with_insufficient_evidence():
@@ -215,7 +297,24 @@ async def test_parallel_read_retries_share_global_budget(monkeypatch):
     registry.executors["query_metrics"] = unavailable
     monkeypatch.setattr("src.tools.registry._registry", registry)
     runner, collector = GraphRunner(settings), Collector()
-    await runner.run("read-budget", "排查服务报警", collector)
+
+    class IncidentLLM:
+        async def acomplete(self, messages, tier="cheap", response_model=None):
+            if response_model is IntentOut:
+                return ModelResult(
+                    parsed=IntentOut(
+                        intent="incident", requested_tools=["query_metrics", "search_code"]
+                    )
+                )
+            if response_model is ReviewOut:
+                return ModelResult(parsed=ReviewOut(sufficient=False))
+            return ModelResult()
+
+        async def astream(self, messages, tier="strong"):
+            yield "证据不足"
+
+    runner.llm = IncidentLLM()
+    await runner.run("read-budget", "查询故障指标并搜索源码", collector)
     graph, _ = await build_graph(settings, runner.llm)
     snapshot = await graph.aget_state({"configurable": {"thread_id": "read-budget"}})
     assert snapshot.values["read_calls"] == len(calls) == 2

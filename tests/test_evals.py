@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -26,6 +28,107 @@ def test_eval_runner_uses_selector_policy_on_windows(monkeypatch) -> None:
 
     assert result == 0
     assert captured == [policy]
+
+
+async def test_eval_collector_captures_first_answer_retrieval_and_tool_evidence():
+    from apps.api.src.schemas.events import AgentEvent
+    from evals.runner import Collector
+
+    started_at = datetime.now(UTC)
+    collector = Collector(started_at)
+    await collector(AgentEvent(
+        type="retrieve", run_id="run-1", ts=started_at + timedelta(milliseconds=40),
+        payload={
+            "hits": 1,
+            "retrieval": {"mode": "graph", "status": "hit", "method": "hybrid"},
+            "citations": [{"citation_id": "cite-1", "chunk_id": "chunk-1", "score": 0.5}],
+        },
+    ))
+    await collector(AgentEvent(
+        type="token", run_id="run-1", ts=started_at + timedelta(milliseconds=75),
+        payload={"delta": "已查到依据"},
+    ))
+    await collector(AgentEvent(
+        type="tool_result", run_id="run-1", payload={
+            "name": "query_metrics", "step_id": "metrics", "args": {"window": "1h"},
+            "ok": True, "output": {"note": "sample"}, "ms": 12, "attempts": 1,
+        },
+    ))
+
+    assert collector.first_answer_ms == 75
+    assert collector.retrieval == {"mode": "graph", "status": "hit", "method": "hybrid"}
+    assert collector.citation_refs == [{
+        "citation_id": "cite-1", "chunk_id": "chunk-1", "score": 0.5,
+    }]
+    assert collector.tools == ["query_metrics"]
+    assert collector.tool_events[0]["args"] == {"window": "1h"}
+    assert collector.tool_events[0]["output"] == '{"note": "sample"}'
+
+
+async def test_eval_collector_ignores_empty_text_and_bounds_tool_output():
+    from apps.api.src.schemas.events import AgentEvent
+    from evals.runner import Collector
+
+    started_at = datetime.now(UTC)
+    collector = Collector(started_at)
+    await collector(AgentEvent(
+        type="token", run_id="run-1", ts=started_at + timedelta(milliseconds=10),
+        payload={"delta": "  \n"},
+    ))
+    await collector(AgentEvent(
+        type="token", run_id="run-1", ts=started_at + timedelta(milliseconds=20),
+        payload={"delta": "有内容"},
+    ))
+    await collector(AgentEvent(
+        type="tool_result", run_id="run-1", payload={
+            "name": "search_code", "ok": True, "output": {"result": "x" * 3000},
+        },
+    ))
+
+    assert collector.first_answer_ms == 20
+    assert len(collector.tool_events[0]["output"]) == 2000
+    assert collector.tool_events[0]["output_truncated"] is True
+
+
+def test_agentops_seed_materials_load_as_four_independent_documents():
+    from scripts.evaluate_isolated import load_agentops_materials
+
+    dataset_path = Path("evals/agentops_eval_v1.json")
+    materials = load_agentops_materials(dataset_path)
+
+    assert len(materials) == 4
+    assert [item["source"] for item in materials] == [
+        "eval-fixture://demoshop/service-map-v1",
+        "eval-fixture://demoshop/order-runbook-v1",
+        "eval-fixture://demoshop/metrics-2026-10-20",
+        "eval-fixture://demoshop/ticket-policy-v1",
+    ]
+    assert "310 ms" in materials[2]["content"]
+    assert "335 ms" in materials[2]["content"]
+    assert "建议测试问题" not in materials[3]["content"]
+
+
+def test_agentops_case_normalization_enforces_expected_tool_boundary():
+    from evals.runner import _normalize_case
+
+    case02 = _normalize_case({
+        "expected_intent": "incident",
+        "expected_tools": [],
+        "optional_tools": ["query_metrics"],
+        "forbidden_tools": ["create_ticket"],
+        "citation_required": True,
+    }, "agentops_eval_v1")
+    case03 = _normalize_case({
+        "expected_intent": "incident",
+        "expected_tools": [],
+        "optional_tools": [],
+        "forbidden_tools": ["create_ticket"],
+        "citation_required": True,
+    }, "agentops_eval_v1")
+
+    assert "query_metrics" not in case02["forbidden_tools"]
+    assert "query_metrics" in case03["forbidden_tools"]
+    assert case02["require_citation"] is True
 
 
 def test_judge_rejects_extra_tools_bad_order_and_excess_approvals():

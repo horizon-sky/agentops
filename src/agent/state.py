@@ -46,6 +46,7 @@ class AgentState(TypedDict, total=False):
     user_id: str
     query: str
     intent: str
+    requested_tools: list[str]
     confident: bool
     plan: dict[str, Any]
     citations: list[dict[str, Any]]

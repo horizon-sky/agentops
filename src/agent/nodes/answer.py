@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -29,7 +30,8 @@ def _build_tool_summary(state: AgentState) -> str:
     parts = []
     for item in state.get("tool_results", []):
         status = "成功" if item.get("ok") else f"失败({item.get('error')})"
-        parts.append(f"- {item.get('name')}: {status} {str(item.get('output'))[:200]}")
+        output = json.dumps(item.get("output"), ensure_ascii=False, sort_keys=True, default=str)
+        parts.append(f"- {item.get('name')}: {status} {output}")
     return "\n".join(parts) or "（未调用工具）"
 
 

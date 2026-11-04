@@ -76,12 +76,14 @@ def build() -> list[dict[str, object]]:
                 "expect_refusal": bool(asserts.get("expect_refusal", False)),
                 "difficulty": asserts.get("difficulty", "normal"),
                 "forbidden_tools": [
-                    tool for tool in ("create_ticket", "draft_report") if tool not in tools
+                    tool for tool in (
+                        "query_metrics", "search_code", "create_ticket", "draft_report"
+                    ) if tool not in tools
                 ],
                 "max_approvals": 1 if asserts.get("expect_hitl") else 0,
                 "max_retries": 2,
                 "event_order": (
-                    ["retrieve", "tool_result", "hitl_request", "done"]
+                    ["retrieve", "hitl_request"]
                     if asserts.get("expect_hitl") else []
                 ),
             }
@@ -92,7 +94,7 @@ def build() -> list[dict[str, object]]:
         add(
             query,
             "incident",
-            ["query_metrics", "search_code"],
+            [],
             require_citation=True,
             difficulty="hard" if index % 4 == 3 else "normal",
         )
