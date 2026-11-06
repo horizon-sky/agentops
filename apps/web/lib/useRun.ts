@@ -32,9 +32,10 @@ function initialSteps(): TimelineStep[] {
 }
 
 function evidenceStages(steps: TimelineStep[], plan: ExecutionPlan, retrieval?: RetrievalDiagnostic): TimelineStep[] {
+  const planSteps = Array.isArray(plan?.steps) ? plan.steps : [];
   return steps.map(step => {
     if (step.stage !== "tools" && step.stage !== "retrieve") return step;
-    const planned = plan.steps.filter(item => item.kind === (step.stage === "tools" ? "tool" : "retrieve"));
+    const planned = planSteps.filter(item => item.kind === (step.stage === "tools" ? "tool" : "retrieve"));
     if (!planned.length || planned.every(item => item.status === "skipped")) {
       return { ...step, status: "skipped", detail: "已跳过" };
     }
@@ -138,9 +139,10 @@ export function useRun() {
           patchStep("generate", { status: "running", detail: "流式生成中" });
           break;
         case "done":
-          if (payload.plan) {
-            setPlan((payload.plan as ExecutionPlan).steps);
-            setSteps(prev => evidenceStages(prev, payload.plan as ExecutionPlan, payload.retrieval as RetrievalDiagnostic));
+          if (payload.plan && Array.isArray((payload.plan as ExecutionPlan).steps)) {
+            const completedPlan = payload.plan as ExecutionPlan;
+            setPlan(completedPlan.steps);
+            setSteps(prev => evidenceStages(prev, completedPlan, payload.retrieval as RetrievalDiagnostic));
           }
           if (payload.retrieval) setRetrieval(payload.retrieval as RetrievalDiagnostic);
           setHitl(null);
