@@ -25,6 +25,8 @@ _lock = asyncio.Lock()
 
 
 def _route_after_classify(state: AgentState) -> str:
+    if state.get("write_denied"):
+        return "answer"
     return "plan" if state.get("confident", True) else END
 
 
@@ -62,7 +64,7 @@ async def build_graph(settings: Settings, llm: LLMProvider | None = None):
 
         workflow.set_entry_point("classify")
         workflow.add_conditional_edges(
-            "classify", _route_after_classify, {"plan": "plan", END: END}
+            "classify", _route_after_classify, {"plan": "plan", "answer": "answer", END: END}
         )
         workflow.add_edge("plan", "dispatch")
         workflow.add_conditional_edges(

@@ -21,7 +21,15 @@ Emit = Callable[[AgentEvent], Awaitable[None]]
 
 @runtime_checkable
 class Runner(Protocol):
-    async def run(self, run_id: str, query: str, emit: Emit, *, user_id: str = "") -> None: ...
+    async def run(
+        self,
+        run_id: str,
+        query: str,
+        emit: Emit,
+        *,
+        user_id: str = "",
+        conversation_history: list[dict[str, str]] | None = None,
+    ) -> None: ...
 
 
 class EchoRunner:
@@ -31,7 +39,15 @@ class EchoRunner:
         self.settings = settings
         self.llm = build_llm(settings)
 
-    async def run(self, run_id: str, query: str, emit: Emit, *, user_id: str = "") -> None:
+    async def run(
+        self,
+        run_id: str,
+        query: str,
+        emit: Emit,
+        *,
+        user_id: str = "",
+        conversation_history: list[dict[str, str]] | None = None,
+    ) -> None:
         retrieval = {"mode": "echo", "status": "not_executed", "reason": "echo_mode"}
         await emit(
             make_event(
@@ -158,6 +174,7 @@ class GraphRunner:
         pending_calls: list[dict[str, Any]] | None = None,
         *,
         user_id: str = "",
+        conversation_history: list[dict[str, str]] | None = None,
     ) -> None:
         graph, _persisted = await build_graph(self.settings, self.llm)
         state: dict[str, Any] = {
@@ -165,6 +182,7 @@ class GraphRunner:
             "session_id": "",
             "user_id": user_id,
             "query": query,
+            "conversation_history": conversation_history or [],
             "plan": {},
             "flags": self.settings.agent_flags(),
             "execution_ms": 0,

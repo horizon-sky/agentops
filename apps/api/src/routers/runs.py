@@ -33,6 +33,26 @@ router = APIRouter(prefix="/runs", tags=["runs"], dependencies=[Depends(current_
 _tasks: dict[str, asyncio.Task[None]] = {}
 
 
+async def _conversation_history(db: AsyncSession, session_id: uuid.UUID) -> list[dict[str, str]]:
+    rows = (
+        await db.execute(
+            select(Run.query, Run.answer)
+            .where(
+                Run.session_id == session_id,
+                Run.status.in_(["completed", "rejected"]),
+                Run.query != "",
+                Run.answer != "",
+            )
+            .order_by(Run.started_at.desc())
+            .limit(6)
+        )
+    ).all()
+    return [
+        {"query": query[:2000], "answer": answer[:4000]}
+        for query, answer in reversed(rows)
+    ]
+
+
 def _validate_approval_text(approval: dict[str, object], payload: ResumeIn) -> None:
     if (
         approval.get("tool") == "create_ticket"
@@ -98,6 +118,7 @@ async def create_run(
     if not settings.accept_new_runs:
         raise HTTPException(503, "任务契约升级中，暂不接收新任务")
     await owned_session(db, payload.session_id, identity.user.id)
+    conversation_history = await _conversation_history(db, payload.session_id)
     # Serialize admissions per user so concurrent requests cannot bypass the quota.
     await db.execute(select(User.id).where(User.id == identity.user.id).with_for_update())
     user_runs = (
@@ -131,7 +152,11 @@ async def create_run(
     async def _execute() -> None:
         try:
             await runner.run(
-                str(run_id), payload.query, _make_emit(str(run_id), settings), user_id=user_id
+                str(run_id),
+                payload.query,
+                _make_emit(str(run_id), settings),
+                user_id=user_id,
+                conversation_history=conversation_history,
             )
             pending = isinstance(runner, GraphRunner) and await runner.awaiting_approval(
                 str(run_id)

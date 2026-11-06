@@ -49,7 +49,13 @@ async def answer(state: AgentState, config: Any | None = None) -> dict[str, Any]
         elif step["status"] in {"pending", "running"}:
             step["status"] = "skipped"
 
-    if state.get("intent") == "injection":
+    if state.get("write_denied"):
+        text = (
+            "已记录你拒绝创建工单。本次运行未调用创建或其他写入工具，拒绝后未执行写入。"
+            "没有转人工或稍后自动创建的操作。"
+        )
+        await emit(event_of(type="token", run_id=run_id, stage="generate", payload={"delta": text}))
+    elif state.get("intent") == "injection":
         # 确定性兜底策略：命中注入意图时拒绝执行，不调用模型
         text = "抱歉，该请求要求绕过系统限制，无法执行。请描述具体的技术问题，我会按流程处理。"
         await emit(event_of(type="token", run_id=run_id, stage="generate", payload={"delta": text}))
@@ -71,6 +77,9 @@ async def answer(state: AgentState, config: Any | None = None) -> dict[str, Any]
     else:
         prompt = ANSWER_TEMPLATE.format(
             query=state["query"],
+            conversation_history=json.dumps(
+                state.get("conversation_history", [])[-6:], ensure_ascii=False
+            ),
             context=_build_context(state),
             tool_results=_build_tool_summary(state),
         ) + ("\n证据审查：" + str(review) + "。证据不足时明确说明限制，不得宣称已经确认。")

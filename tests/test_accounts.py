@@ -435,16 +435,86 @@ async def test_completed_run_persists_echo_output(account_app):
         assert stored.answer == "hello"
 
 
+async def test_new_run_receives_only_recent_completed_history_from_same_session(
+    account_app, monkeypatch
+):
+    client, factory, mail, _ = account_app
+    headers = await signed_in(client, mail)
+    session_a = (
+        await client.post("/sessions", json={"title": "A"}, headers=headers)
+    ).json()["id"]
+    session_b = (
+        await client.post("/sessions", json={"title": "B"}, headers=headers)
+    ).json()["id"]
+    async with factory() as db:
+        db.add_all(
+            [
+                Run(
+                    session_id=uuid.UUID(session_a),
+                    status="completed",
+                    query="创建 P2 跟进工单",
+                    answer="草稿标题：订单服务异常；优先级：P2",
+                ),
+                Run(
+                    session_id=uuid.UUID(session_b),
+                    status="completed",
+                    query="私密问题",
+                    answer="另一会话内容",
+                ),
+                Run(
+                    session_id=uuid.UUID(session_a),
+                    status="failed",
+                    query="失败请求",
+                    answer="失败结果不应作为历史",
+                ),
+            ]
+        )
+        await db.commit()
+
+    captured = {}
+
+    class CapturingRunner:
+        async def run(self, run_id, query, emit, *, user_id="", conversation_history=None):
+            captured["history"] = conversation_history
+
+    monkeypatch.setattr(runs, "get_runner", lambda _: CapturingRunner())
+    response = await client.post(
+        "/runs",
+        json={"session_id": session_a, "query": "将刚才工单优先级改为 P1"},
+        headers=headers,
+    )
+    assert response.status_code == 201
+    await runs._tasks[response.json()["id"]]
+
+    assert captured["history"] == [
+        {"query": "创建 P2 跟进工单", "answer": "草稿标题：订单服务异常；优先级：P2"}
+    ]
+
+
 @pytest.mark.parametrize("approved", [False, True])
 async def test_local_api_restores_plan_and_resumes_approval_once(
     account_app, monkeypatch, approved
 ):
+    from src.agent.model import ModelResult
+    from src.agent.nodes.classify import IntentOut
     from src.tools.registry import ToolRegistry
+
+    class TicketLLM:
+        async def acomplete(self, messages, tier="cheap", response_model=None):
+            if response_model is IntentOut:
+                return ModelResult(
+                    parsed=IntentOut(intent="ticket", requested_tools=["create_ticket"])
+                )
+            return ModelResult()
+
+        async def astream(self, messages, tier="strong"):
+            yield "工单草稿"
 
     client, factory, mail, settings = account_app
     settings.agent_mode = "graph"
     settings.agent_conditional_routing = True
     settings.agent_targeted_retry = True
+    monkeypatch.setattr("src.agent.runner.build_llm", lambda _: TicketLLM())
     monkeypatch.setattr("src.db.session.get_session_factory", lambda _: factory)
     monkeypatch.setattr("src.tools.registry._registry", ToolRegistry(settings))
     headers = await signed_in(client, mail)
@@ -473,7 +543,20 @@ async def test_local_api_restores_plan_and_resumes_approval_once(
     # New-run switches must not change a waiting run's graph or checkpoint.
     settings.agent_conditional_routing = False
     settings.agent_targeted_retry = False
-    decision = {"ok": approved, "approval_id": approval_id}
+    decision = {
+        "ok": approved,
+        "approval_id": approval_id,
+        "confirmation_text": "确认创建" if approved else "拒绝创建",
+    }
+    if approved:
+        missing_confirmation = await client.post(
+            f"/runs/{run_id}/resume",
+            json={"ok": True, "approval_id": approval_id},
+            headers=headers,
+        )
+        assert missing_confirmation.status_code == 400
+        async with factory() as db:
+            assert await db.scalar(select(Ticket)) is None
     assert (await client.post(
         f"/runs/{run_id}/resume", json=decision, headers=headers
     )).status_code == 200
@@ -610,7 +693,15 @@ async def test_ticket_approval_persists_once_and_archived_retry_fails(account_ap
         events.append(event)
 
     runner = GraphRunner(settings)
-    await runner.run(str(run_id), "创建 P1 工单", emit, user_id=str(user_id))
+    await runner.run(
+        str(run_id),
+        "创建 P1 工单",
+        emit,
+        pending_calls=[
+            {"name": "create_ticket", "args": {"title": "创建 P1 工单", "severity": "P1"}}
+        ],
+        user_id=str(user_id),
+    )
     async with factory() as db:
         assert (await db.execute(select(Ticket))).scalars().all() == []
     approval = next(event.payload for event in events if event.type == "hitl_request")
@@ -673,10 +764,22 @@ async def test_rejected_ticket_never_persists(account_app, monkeypatch):
         pass
 
     runner = GraphRunner(settings)
-    await runner.run(str(run_id), "创建工单", emit, user_id=str(user_id))
-    await runner.resume(str(run_id), {
-        "ok": False, "approval_id": (await runner.approval(str(run_id)))["approval_id"],
-    }, emit, user_id=str(user_id))
+    await runner.run(
+        str(run_id),
+        "创建工单",
+        emit,
+        pending_calls=[{"name": "create_ticket", "args": {"title": "创建工单"}}],
+        user_id=str(user_id),
+    )
+    await runner.resume(
+        str(run_id),
+        {
+            "ok": False,
+            "approval_id": (await runner.approval(str(run_id)))["approval_id"],
+        },
+        emit,
+        user_id=str(user_id),
+    )
     async with factory() as db:
         assert (await db.execute(select(Ticket))).scalars().all() == []
 

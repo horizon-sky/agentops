@@ -45,9 +45,11 @@ class AgentState(TypedDict, total=False):
     session_id: str
     user_id: str
     query: str
+    conversation_history: list[dict[str, str]]
     intent: str
     requested_tools: list[str]
     confident: bool
+    write_denied: bool
     plan: dict[str, Any]
     citations: list[dict[str, Any]]
     retrieval: dict[str, Any]

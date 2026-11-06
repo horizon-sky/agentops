@@ -25,18 +25,23 @@ class IntentOut(BaseModel):
 
 
 RULES: list[tuple[tuple[str, ...], str]] = [
-    (("忽略以上", "忽略前面的", "忽略之前", "系统提示", "指令"), "injection"),
+    (("忽略以上", "忽略前面的", "忽略之前"), "injection"),
     (("建单", "工单", "创建单"), "ticket"),
     (("报警", "5xx", "超时", "延迟", "失败率", "故障", "排查", "连接池"), "incident"),
     (("代码", "文件", "函数", "定位", "哪个类", "实现", "位置", "查询语句"), "code"),
     (("规范", "流程", "知识库", "文档", "准入", "优先级"), "knowledge"),
 ]
 
+INJECTION_PHRASES = ("忽略审批规则", "绕过审批", "绕过系统限制", "忽略系统提示")
+TICKET_DENIAL_PHRASES = ("拒绝创建工单", "拒绝建单", "拒绝创建单")
+
 CLARIFICATION_MESSAGE = "当前信息不足，暂未执行后续步骤。请补充具体服务、时间范围和现象。"
 
 
 def rule_intent(query: str) -> str:
     """模型不可用或无法给出结构化结果时的确定性兜底，保证链路仍可运行。"""
+    if any(phrase in query for phrase in INJECTION_PHRASES):
+        return "injection"
     for keywords, intent in RULES:
         if any(keyword in query for keyword in keywords):
             return intent
@@ -49,12 +54,18 @@ async def classify(state: AgentState, config: Any | None = None) -> dict[str, An
     emit = get_emit(config)
     timer = Timer()
 
+    query = state["query"]
     intent, confident, reason = "general", True, ""
     requested_tools: list[str] = []
-    if llm is not None:
+    write_denied = any(phrase in query for phrase in TICKET_DENIAL_PHRASES)
+    if any(phrase in query for phrase in INJECTION_PHRASES):
+        intent, reason = "injection", "检测到明确的审批或系统限制绕过请求"
+    elif write_denied:
+        intent, reason = "ticket", "用户明确拒绝创建工单"
+    elif llm is not None:
         try:
             result = await llm.acomplete(
-                [SystemMessage(content=SYSTEM_CLASSIFY), HumanMessage(content=state["query"])],
+                [SystemMessage(content=SYSTEM_CLASSIFY), HumanMessage(content=query)],
                 tier="cheap",
                 response_model=IntentOut,
             )
@@ -108,6 +119,7 @@ async def classify(state: AgentState, config: Any | None = None) -> dict[str, An
         "intent": intent,
         "requested_tools": requested_tools if intent != "injection" else [],
         "confident": confident,
+        "write_denied": write_denied,
         **({"answer": CLARIFICATION_MESSAGE} if not confident else {}),
         "execution_ms": state.get("execution_ms", 0) + timer.ms,
     }
