@@ -26,7 +26,11 @@ _INTENT_TOOLS = {
 def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
     query = state.get("query", "")
     severity = re.search(r"(?<![A-Za-z0-9])P[0-3](?![A-Za-z0-9])", query, re.IGNORECASE)
+    confirmation = state.get("ticket_confirmation", False)
+    ticket_draft = _ticket_draft_from_history(state) if confirmation else None
     intent = state.get("intent")
+    if confirmation and ticket_draft is not None:
+        intent = "ticket"
     allowed = {
         "incident": {"query_metrics", "search_code"},
         "code": {"search_code"},
@@ -35,17 +39,27 @@ def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
         "general": set(),
     }.get(intent, set())
     tools = [name for name in dict.fromkeys(state.get("requested_tools", [])) if name in allowed]
+    if confirmation:
+        tools = [name for name in tools if name != "create_ticket"]
+        if ticket_draft is not None:
+            tools.append("create_ticket")
     if intent == "code" and "search_code" not in tools:
         tools.append("search_code")
     tools = list(dict.fromkeys([*_INTENT_TOOLS.get(intent, []), *tools]))
-    return [
+    calls = [
         {
             "name": name,
             "args": (
                 {
-                    "title": query[:300],
-                    "detail": query,
-                    "severity": severity.group().upper() if severity else "P2",
+                    **(
+                        ticket_draft
+                        if confirmation and ticket_draft is not None
+                        else {
+                            "title": query[:300],
+                            "detail": query,
+                            "severity": severity.group().upper() if severity else "P2",
+                        }
+                    ),
                 }
                 if name == "create_ticket"
                 else {"service": "order-service", "window": "1h"}
@@ -55,6 +69,31 @@ def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
         }
         for name in tools
     ]
+    if confirmation and ticket_draft is None:
+        return [call for call in calls if call["name"] != "create_ticket"]
+    return calls
+
+
+def _ticket_draft_from_history(state: AgentState) -> dict[str, str] | None:
+    history = state.get("conversation_history", [])
+    if not history:
+        return None
+    answer = history[-1].get("answer", "")
+    if "请确认是否按以上草稿" not in answer:
+        return None
+    title_match = re.search(r"(?m)^标题：(.+?)\s*$", answer)
+    priority_match = re.search(r"(?m)^优先级：\s*(P[0-3])(?:\b|（)", answer)
+    detail_match = re.search(
+        r"(?ms)^描述：\s*\n(.*?)(?=\n\s*(?:本次未调用工具|请确认是否按以上草稿))",
+        answer,
+    )
+    if not title_match or not priority_match or not detail_match:
+        return None
+    title = re.sub(r"\s*\[[0-9a-fA-F-]{36}\]\s*$", "", title_match.group(1)).strip()
+    detail = detail_match.group(1).strip()
+    if not title or not detail:
+        return None
+    return {"title": title, "detail": detail, "severity": priority_match.group(1)}
 
 
 async def tools(state: AgentState, config: Any | None = None) -> dict[str, Any]:
@@ -85,6 +124,41 @@ async def tools(state: AgentState, config: Any | None = None) -> dict[str, Any]:
         write = registry.is_high_risk(step["tool"])
         if write:
             approval_id = key
+            if step["tool"] == "create_ticket" and state.get("ticket_confirmation"):
+                await emit(
+                    event_of(
+                        type="approval",
+                        run_id=run_id,
+                        stage="tools",
+                        payload={
+                            "event": "confirmed",
+                            "approval_id": approval_id,
+                            "step_id": step_id,
+                            "tool": step["tool"],
+                            "args": args,
+                            "actor_id": state.get("user_id"),
+                            "confirmation_text": state.get("query", ""),
+                            "source": "explicit_follow_up_message",
+                        },
+                    )
+                )
+                args["idempotency_key"] = key
+                bind(write_approved=True)
+                try:
+                    result = await registry.call(step["tool"], args)
+                finally:
+                    bind(write_approved=False)
+                payload = {**result.model_dump(), "step_id": step_id}
+                await emit(
+                    event_of(
+                        type="tool_result",
+                        run_id=run_id,
+                        stage="tools",
+                        payload=payload,
+                        ms=result.ms,
+                    )
+                )
+                return payload
             request = {
                 "approval_id": approval_id,
                 "step_id": step_id,

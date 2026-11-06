@@ -64,7 +64,8 @@ def _validate_approval_text(approval: dict[str, object], payload: ResumeIn) -> N
 
 async def _persist_run_result(run_id: str, settings: Settings, event: AgentEvent) -> None:
     if (
-        event.type not in {"retrieve", "done", "plan", "hitl_request", "tool_result"}
+        event.type
+        not in {"retrieve", "done", "plan", "hitl_request", "approval", "tool_result"}
         or not event.payload
     ):
         return
@@ -84,12 +85,52 @@ async def _persist_run_result(run_id: str, settings: Settings, event: AgentEvent
                 run.tool_results = payload["tools"]
             if event.type == "hitl_request":
                 run.approval = payload
+                history = list(run.approval_history or [])
+                history.append(
+                    {
+                        "event": "requested",
+                        "event_id": event.id,
+                        "at": event.ts.isoformat(),
+                        "approval_id": payload.get("approval_id"),
+                        "step_id": payload.get("step_id"),
+                        "tool": payload.get("tool"),
+                        "args": payload.get("args", {}),
+                    }
+                )
+                run.approval_history = history
+            if event.type == "approval":
+                history = list(run.approval_history or [])
+                history.append(
+                    {
+                        **payload,
+                        "event_id": event.id,
+                        "at": event.ts.isoformat(),
+                    }
+                )
+                run.approval_history = history
             if event.type == "tool_result":
                 run.tool_results = [
                     result
                     for result in (run.tool_results or [])
                     if result.get("step_id") != payload.get("step_id")
                 ] + [payload]
+                if payload.get("risk") == "high":
+                    history = list(run.approval_history or [])
+                    history.append(
+                        {
+                            "event": "executed",
+                            "event_id": event.id,
+                            "at": event.ts.isoformat(),
+                            "approval_id": f"{run_id}:{payload.get('step_id')}",
+                            "step_id": payload.get("step_id"),
+                            "tool": payload.get("name"),
+                            "ok": payload.get("ok"),
+                            "args": payload.get("args", {}),
+                            "output": payload.get("output"),
+                            "error": payload.get("error"),
+                        }
+                    )
+                    run.approval_history = history
                 if (run.approval or {}).get("step_id") == payload.get("step_id"):
                     run.approval = {}
             if event.type == "done":
@@ -283,6 +324,25 @@ async def resume_run(
     if not payload.approval_id or payload.approval_id != (run.approval or {}).get("approval_id"):
         raise HTTPException(409, "审批已过期或与当前操作不匹配")
     _validate_approval_text(run.approval or {}, payload)
+
+    approval = run.approval or {}
+    approved_args = {**approval.get("args", {}), **(payload.args or {})}
+    history = list(run.approval_history or [])
+    history.append(
+        {
+            "event": "decision",
+            "at": datetime.now(UTC).isoformat(),
+            "approval_id": payload.approval_id,
+            "step_id": approval.get("step_id"),
+            "tool": approval.get("tool"),
+            "ok": payload.ok,
+            "actor_id": str(identity.user.id),
+            "confirmation_text": payload.confirmation_text,
+            "args": approved_args,
+            "comment": payload.comment,
+        }
+    )
+    run.approval_history = history
 
     payload_dict = {
         "ok": payload.ok,

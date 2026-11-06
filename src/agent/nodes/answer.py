@@ -55,6 +55,9 @@ async def answer(state: AgentState, config: Any | None = None) -> dict[str, Any]
             "没有转人工或稍后自动创建的操作。"
         )
         await emit(event_of(type="token", run_id=run_id, stage="generate", payload={"delta": text}))
+    elif state.get("ticket_confirmation_error"):
+        text = "当前会话中没有可匹配的待确认工单草稿，未调用创建工具。请先重新生成并核对草稿。"
+        await emit(event_of(type="token", run_id=run_id, stage="generate", payload={"delta": text}))
     elif state.get("intent") == "injection":
         # 确定性兜底策略：命中注入意图时拒绝执行，不调用模型
         text = "抱歉，该请求要求绕过系统限制，无法执行。请描述具体的技术问题，我会按流程处理。"

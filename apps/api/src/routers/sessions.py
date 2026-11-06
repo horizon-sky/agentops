@@ -79,6 +79,7 @@ async def list_session_runs(
             tool_results=row.tool_results or [],
             plan=row.plan or {},
             approval=row.approval or {},
+            approval_history=row.approval_history or [],
             contract_version=row.contract_version,
             ended_at=row.ended_at,
         )

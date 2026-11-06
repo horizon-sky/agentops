@@ -40,6 +40,7 @@ class RunOut(BaseModel):
     tool_results: list[dict[str, Any]] = Field(default_factory=list)
     plan: dict[str, Any] = Field(default_factory=dict)
     approval: dict[str, Any] = Field(default_factory=dict)
+    approval_history: list[dict[str, Any]] = Field(default_factory=list)
     contract_version: int = 1
     ended_at: datetime | None = None
 

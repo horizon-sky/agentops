@@ -13,6 +13,7 @@ EventType = Literal[
     "retrieve",
     "tool_result",
     "hitl_request",
+    "approval",
     "token",
     "done",
     "error",

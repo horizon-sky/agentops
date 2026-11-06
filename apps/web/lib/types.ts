@@ -3,6 +3,7 @@ export type EventType =
   | "retrieve"
   | "tool_result"
   | "hitl_request"
+  | "approval"
   | "token"
   | "done"
   | "error"
@@ -123,6 +124,7 @@ export interface RunSnapshot {
   status: string;
   plan?: ExecutionPlan;
   approval?: HitlPayload;
+  approval_history?: Array<Record<string, unknown>>;
   model_version?: string;
   prompt_version?: string;
   query?: string;
@@ -139,6 +141,7 @@ export interface RunRef {
   status: string;
   plan?: ExecutionPlan;
   approval?: HitlPayload;
+  approval_history?: Array<Record<string, unknown>>;
   model_version?: string;
   prompt_version?: string;
   query?: string;

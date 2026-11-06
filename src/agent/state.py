@@ -50,6 +50,9 @@ class AgentState(TypedDict, total=False):
     requested_tools: list[str]
     confident: bool
     write_denied: bool
+    ticket_confirmation: bool
+    ticket_draft: dict[str, str]
+    ticket_confirmation_error: bool
     plan: dict[str, Any]
     citations: list[dict[str, Any]]
     retrieval: dict[str, Any]

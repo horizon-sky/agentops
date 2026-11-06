@@ -48,6 +48,59 @@ def test_ticket_priority_in_chinese_requests(query, severity) -> None:
     assert ticket["args"] == {"title": query, "detail": query, "severity": severity}
 
 
+def test_confirmation_uses_previous_ticket_draft_as_write_payload() -> None:
+    from src.agent.nodes.tools import _planned_calls
+
+    calls = _planned_calls(
+        {
+            "intent": "ticket",
+            "query": "确认创建，按刚才的 P1 草稿创建工单。",
+            "requested_tools": ["create_ticket"],
+            "ticket_confirmation": True,
+            "conversation_history": [
+                {
+                    "query": "将刚才工单优先级改为 P1，但先不要创建，等我确认。",
+                    "answer": (
+                        "已生成待确认草稿。\n\n"
+                        "标题：DemoShop 订单服务故障跟进。\n"
+                        "优先级：P1（待确认）。\n\n"
+                        "描述：\n"
+                        "现象与证据：订单服务 5xx 与延迟升高。\n"
+                        "调查判断：根因仍待确认。\n"
+                        "本次未调用工具。\n"
+                        "请确认是否按以上草稿创建。"
+                    ),
+                }
+            ],
+        }
+    )
+
+    ticket = next(call for call in calls if call["name"] == "create_ticket")
+    assert ticket["args"] == {
+        "title": "DemoShop 订单服务故障跟进。",
+        "detail": "现象与证据：订单服务 5xx 与延迟升高。\n调查判断：根因仍待确认。",
+        "severity": "P1",
+    }
+
+
+def test_confirmation_without_previous_ticket_draft_does_not_write_confirmation_text() -> None:
+    from src.agent.nodes.tools import _planned_calls
+
+    calls = _planned_calls(
+        {
+            "intent": "ticket",
+            "query": "确认创建，按刚才的 P1 草稿创建工单。",
+            "requested_tools": ["create_ticket"],
+            "ticket_confirmation": True,
+            "conversation_history": [],
+        }
+    )
+
+    assert not any(call["name"] == "create_ticket" for call in calls)
+
+
+
+
 async def test_read_tool_returns_structured_result() -> None:
     registry = _registry()
     result = await registry.call("query_metrics", {"service": "order-service", "window": "1h"})

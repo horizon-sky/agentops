@@ -87,6 +87,49 @@ def test_dynamic_plan_cannot_add_unrequested_metrics_tool():
         validate_plan(plan, state, ToolRegistry(Settings(_env_file=None)))
 
 
+def test_dynamic_plan_cannot_replace_confirmed_ticket_draft_with_confirmation_text():
+    state = {
+        "intent": "ticket",
+        "query": "确认创建",
+        "requested_tools": ["create_ticket"],
+        "ticket_confirmation": True,
+        "conversation_history": [
+            {
+                "query": "创建跟进草稿",
+                "answer": (
+                    "标题：订单服务故障跟进\n优先级：P1（待确认）\n\n"
+                    "描述：\n订单服务 5xx 升高，根因待确认。\n"
+                    "请确认是否按以上草稿创建。"
+                ),
+            }
+        ],
+        "flags": {"routing": True},
+    }
+    plan = ExecutionPlan(
+        steps=[
+            PlanStep(id="retrieve", kind="retrieve", goal="检索", args={"query": "确认创建"}),
+            PlanStep(
+                id="write",
+                kind="tool",
+                goal="create_ticket",
+                tool="create_ticket",
+                args={"title": "确认创建", "detail": "确认创建", "severity": "P1"},
+                depends_on=["retrieve"],
+            ),
+            PlanStep(id="answer", kind="answer", goal="回答", depends_on=["retrieve", "write"]),
+        ]
+    )
+
+    validated = validate_plan(plan, state, ToolRegistry(Settings(_env_file=None)))
+
+    write = next(step for step in validated.steps if step.tool == "create_ticket")
+    assert write.args == {
+        "title": "订单服务故障跟进",
+        "detail": "订单服务 5xx 升高，根因待确认。",
+        "severity": "P1",
+    }
+
+
 def test_incident_tool_selection_requires_classifier_authorization():
     query = "这组指标能否证明数据库连接池是故障根因？"
     state = {"intent": "incident", "query": query, "flags": {"routing": True}}

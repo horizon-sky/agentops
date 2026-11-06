@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -34,6 +35,7 @@ RULES: list[tuple[tuple[str, ...], str]] = [
 
 INJECTION_PHRASES = ("忽略审批规则", "绕过审批", "绕过系统限制", "忽略系统提示")
 TICKET_DENIAL_PHRASES = ("拒绝创建工单", "拒绝建单", "拒绝创建单")
+TICKET_CONFIRMATION_PATTERN = r"^确认创建(?:[，,。!！\s].*)?$"
 
 CLARIFICATION_MESSAGE = "当前信息不足，暂未执行后续步骤。请补充具体服务、时间范围和现象。"
 
@@ -58,7 +60,21 @@ async def classify(state: AgentState, config: Any | None = None) -> dict[str, An
     intent, confident, reason = "general", True, ""
     requested_tools: list[str] = []
     write_denied = any(phrase in query for phrase in TICKET_DENIAL_PHRASES)
-    if any(phrase in query for phrase in INJECTION_PHRASES):
+    ticket_confirmation = bool(re.fullmatch(TICKET_CONFIRMATION_PATTERN, query.strip()))
+    ticket_draft = None
+    ticket_confirmation_error = False
+    if ticket_confirmation:
+        from src.agent.nodes.tools import _ticket_draft_from_history
+
+        ticket_draft = _ticket_draft_from_history(state)
+        if ticket_draft is None:
+            ticket_confirmation_error = True
+            intent, reason = "ticket", "当前会话没有可匹配的待确认工单草稿"
+        else:
+            intent = "ticket"
+            requested_tools = ["create_ticket"]
+            reason = "用户已通过后续消息明确确认当前待确认草稿"
+    elif any(phrase in query for phrase in INJECTION_PHRASES):
         intent, reason = "injection", "检测到明确的审批或系统限制绕过请求"
     elif write_denied:
         intent, reason = "ticket", "用户明确拒绝创建工单"
@@ -120,6 +136,9 @@ async def classify(state: AgentState, config: Any | None = None) -> dict[str, An
         "requested_tools": requested_tools if intent != "injection" else [],
         "confident": confident,
         "write_denied": write_denied,
+        "ticket_confirmation": ticket_confirmation and ticket_draft is not None,
+        "ticket_draft": ticket_draft or {},
+        "ticket_confirmation_error": ticket_confirmation_error,
         **({"answer": CLARIFICATION_MESSAGE} if not confident else {}),
         "execution_ms": state.get("execution_ms", 0) + timer.ms,
     }

@@ -75,6 +75,9 @@ def validate_plan(plan: ExecutionPlan, state: dict[str, Any], registry: Any) -> 
         raise ValueError("Invalid step IDs or plan size")
     expected = static_plan({**state, "flags": {"routing": True}})
     allowed = {s.tool for s in expected.steps if s.tool}
+    expected_write_args = {
+        s.tool: s.args for s in expected.steps if s.tool == "create_ticket"
+    }
     for step in plan.steps:
         if not set(step.depends_on).issubset(ids):
             raise ValueError("Unknown dependency")
@@ -86,6 +89,8 @@ def validate_plan(plan: ExecutionPlan, state: dict[str, Any], registry: Any) -> 
             step.args = spec.args_model.model_validate(step.args).model_dump(exclude_none=True)
             if registry.is_high_risk(step.tool):
                 step.args.pop("idempotency_key", None)
+            if step.tool == "create_ticket":
+                step.args = dict(expected_write_args[step.tool])
         elif step.tool is not None:
             raise ValueError("Non-tool step has tool")
         elif step.kind == "retrieve":

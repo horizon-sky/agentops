@@ -201,6 +201,105 @@ async def test_graph_runner_includes_prior_session_turn_in_answer_context() -> N
     assert "tool_result" not in collector.types
 
 
+async def test_explicit_follow_up_confirmation_creates_previous_ticket_draft(monkeypatch) -> None:
+    from src.agent.model import ModelResult
+    from src.agent.nodes.classify import IntentOut
+    from src.agent.state import ToolResult
+    from src.tools.registry import ToolRegistry
+
+    calls = []
+
+    async def call(self, name, args):
+        calls.append((name, args))
+        return ToolResult(
+            name=name,
+            args=args,
+            ok=True,
+            output={"ticket_id": "OPS-1", "title": args["title"], "severity": args["severity"]},
+            risk="high",
+        )
+
+    class ConfirmationLLM:
+        async def acomplete(self, messages, tier="cheap", response_model=None):
+            if response_model is IntentOut:
+                raise AssertionError("explicit confirmation must use deterministic routing")
+            return ModelResult()
+
+        async def astream(self, messages, tier="strong"):
+            yield "已创建 OPS-1"
+
+    monkeypatch.setattr(ToolRegistry, "call", call)
+    runner = GraphRunner(Settings(_env_file=None, agent_conditional_routing=True))
+    runner.llm = ConfirmationLLM()
+    collector = Collector()
+    await runner.run(
+        "confirm-draft",
+        "确认创建，按刚才的 P1 草稿创建工单。",
+        collector,
+        user_id="alice",
+        conversation_history=[
+            {
+                "query": "将刚才工单优先级改为 P1，先不要创建。",
+                "answer": (
+                    "标题：DemoShop 订单服务故障跟进。[9cbaa5b1-d4dd-4738-8e4a-f8e07602285c]\n"
+                    "优先级：P1（待确认）\n\n"
+                    "描述：\n现象与证据：订单服务 5xx 与延迟升高。\n"
+                    "调查判断：根因仍待确认。\n"
+                    "本次未调用工具。\n请确认是否按以上草稿创建。"
+                ),
+            }
+        ],
+    )
+
+    assert calls == [
+        (
+            "create_ticket",
+            {
+                "title": "DemoShop 订单服务故障跟进。",
+                "detail": "现象与证据：订单服务 5xx 与延迟升高。\n调查判断：根因仍待确认。",
+                "severity": "P1",
+                "idempotency_key": "confirm-draft:tool-0",
+            },
+        )
+    ]
+    approval = next(event.payload for event in collector.events if event.type == "approval")
+    assert approval["event"] == "confirmed"
+    assert approval["actor_id"] == "alice"
+    assert approval["confirmation_text"] == "确认创建，按刚才的 P1 草稿创建工单。"
+    assert approval["source"] == "explicit_follow_up_message"
+    assert not any(event.type == "hitl_request" for event in collector.events)
+
+
+async def test_explicit_confirmation_without_matching_draft_never_writes(monkeypatch) -> None:
+    from src.agent.model import ModelResult
+    from src.agent.nodes.classify import IntentOut
+    from src.tools.registry import ToolRegistry
+
+    async def call(self, name, args):
+        raise AssertionError("confirmation without a draft must not write")
+
+    class ConfirmationLLM:
+        async def acomplete(self, messages, tier="cheap", response_model=None):
+            if response_model is IntentOut:
+                raise AssertionError("explicit confirmation must use deterministic routing")
+            return ModelResult()
+
+        async def astream(self, messages, tier="strong"):
+            yield ""
+
+    monkeypatch.setattr(ToolRegistry, "call", call)
+    runner = GraphRunner(Settings(_env_file=None))
+    runner.llm = ConfirmationLLM()
+    collector = Collector()
+    await runner.run("orphan-confirmation", "确认创建", collector, conversation_history=[])
+
+    result = collector.payload_of("done")
+    assert "没有可匹配" in result["answer"]
+    assert not any(
+        event.type in {"approval", "hitl_request", "tool_result"} for event in collector.events
+    )
+
+
 async def test_high_risk_tool_triggers_hitl_and_suspends() -> None:
     settings = Settings(_env_file=None)
     collector = Collector()

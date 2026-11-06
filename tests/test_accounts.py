@@ -450,22 +450,16 @@ async def test_new_run_receives_only_recent_completed_history_from_same_session(
         db.add_all(
             [
                 Run(
-                    session_id=uuid.UUID(session_a),
-                    status="completed",
-                    query="创建 P2 跟进工单",
-                    answer="草稿标题：订单服务异常；优先级：P2",
+                    session_id=uuid.UUID(session_a), status="completed",
+                    query="创建 P2 跟进工单", answer="草稿标题：订单服务异常；优先级：P2",
                 ),
                 Run(
-                    session_id=uuid.UUID(session_b),
-                    status="completed",
-                    query="私密问题",
-                    answer="另一会话内容",
+                    session_id=uuid.UUID(session_b), status="completed",
+                    query="私密问题", answer="另一会话内容",
                 ),
                 Run(
-                    session_id=uuid.UUID(session_a),
-                    status="failed",
-                    query="失败请求",
-                    answer="失败结果不应作为历史",
+                    session_id=uuid.UUID(session_a), status="failed",
+                    query="失败请求", answer="失败结果不应作为历史",
                 ),
             ]
         )
@@ -518,9 +512,9 @@ async def test_local_api_restores_plan_and_resumes_approval_once(
     monkeypatch.setattr("src.db.session.get_session_factory", lambda _: factory)
     monkeypatch.setattr("src.tools.registry._registry", ToolRegistry(settings))
     headers = await signed_in(client, mail)
-    session_id = (await client.post(
-        "/sessions", json={"title": "Local approval"}, headers=headers
-    )).json()["id"]
+    session_id = (
+        await client.post("/sessions", json={"title": "Local approval"}, headers=headers)
+    ).json()["id"]
     response = await client.post(
         "/runs", json={"session_id": session_id, "query": "创建 P1 工单"}, headers=headers
     )
@@ -536,9 +530,11 @@ async def test_local_api_restores_plan_and_resumes_approval_once(
     assert not any(result["name"] == "search_code" for result in snapshot["tool_results"])
     async with factory() as db:
         assert await db.scalar(select(Ticket)) is None
-    assert (await client.post(
-        f"/runs/{run_id}/resume", json={"ok": approved, "approval_id": "stale"}, headers=headers
-    )).status_code == 409
+    assert (
+        await client.post(
+            f"/runs/{run_id}/resume", json={"ok": approved, "approval_id": "stale"}, headers=headers
+        )
+    ).status_code == 409
 
     # New-run switches must not change a waiting run's graph or checkpoint.
     settings.agent_conditional_routing = False
@@ -557,16 +553,22 @@ async def test_local_api_restores_plan_and_resumes_approval_once(
         assert missing_confirmation.status_code == 400
         async with factory() as db:
             assert await db.scalar(select(Ticket)) is None
-    assert (await client.post(
-        f"/runs/{run_id}/resume", json=decision, headers=headers
-    )).status_code == 200
+    assert (
+        await client.post(f"/runs/{run_id}/resume", json=decision, headers=headers)
+    ).status_code == 200
     await runs._tasks[f"{run_id}:resume"]
-    assert (await client.post(
-        f"/runs/{run_id}/resume", json=decision, headers=headers
-    )).status_code == 409
+    assert (
+        await client.post(f"/runs/{run_id}/resume", json=decision, headers=headers)
+    ).status_code == 409
     restored = (await client.get(f"/sessions/{session_id}/runs", headers=headers)).json()[0]
     assert restored["status"] == ("completed" if approved else "rejected")
     assert restored["approval"] == {}
+    assert len(restored["approval_history"]) == 3
+    assert restored["approval_history"][0]["event"] == "requested"
+    assert restored["approval_history"][1]["event"] == "decision"
+    assert restored["approval_history"][1]["ok"] is approved
+    assert restored["approval_history"][2]["event"] == "executed"
+    assert restored["approval_history"][2]["args"]["title"] == "创建 P1 工单"
     assert sum(result["name"] == "create_ticket" for result in restored["tool_results"]) == 1
     async with factory() as db:
         tickets = list(await db.scalars(select(Ticket)))
@@ -697,9 +699,10 @@ async def test_ticket_approval_persists_once_and_archived_retry_fails(account_ap
         str(run_id),
         "创建 P1 工单",
         emit,
-        pending_calls=[
-            {"name": "create_ticket", "args": {"title": "创建 P1 工单", "severity": "P1"}}
-        ],
+        pending_calls=[{
+            "name": "create_ticket",
+            "args": {"title": "创建 P1 工单", "severity": "P1"},
+        }],
         user_id=str(user_id),
     )
     async with factory() as db:
