@@ -59,6 +59,8 @@ def test_confirmation_uses_previous_ticket_draft_as_write_payload() -> None:
             "ticket_confirmation": True,
             "conversation_history": [
                 {
+                    "run_id": "draft-run-1",
+                    "status": "completed",
                     "query": "将刚才工单优先级改为 P1，但先不要创建，等我确认。",
                     "answer": (
                         "已生成待确认草稿。\n\n"
@@ -67,9 +69,11 @@ def test_confirmation_uses_previous_ticket_draft_as_write_payload() -> None:
                         "描述：\n"
                         "现象与证据：订单服务 5xx 与延迟升高。\n"
                         "调查判断：根因仍待确认。\n"
-                        "本次未调用工具。\n"
-                        "请确认是否按以上草稿创建。"
+                        "当前状态：仅生成文本草稿，未调用工具。\n"
+                        "你可以在下一轮单独回复‘确认创建’。"
                     ),
+                    "tool_results": [],
+                    "plan": {"steps": [{"kind": "answer", "status": "done"}]},
                 }
             ],
         }
@@ -81,6 +85,67 @@ def test_confirmation_uses_previous_ticket_draft_as_write_payload() -> None:
         "detail": "现象与证据：订单服务 5xx 与延迟升高。\n调查判断：根因仍待确认。",
         "severity": "P1",
     }
+
+
+def test_confirmation_uses_most_recent_unwritten_draft_from_history() -> None:
+    from src.agent.nodes.tools import _ticket_draft_from_history
+
+    state = {
+        "conversation_history": [
+            {
+                "run_id": "older-draft",
+                "status": "completed",
+                "answer": "标题：旧草稿\n优先级：P2\n描述：\n旧内容\n当前状态：等待确认",
+                "tool_results": [],
+                "plan": {"steps": []},
+            },
+            {
+                "run_id": "already-written",
+                "status": "completed",
+                "answer": "标题：已创建工单\n优先级：P1\n描述：\n已写入内容",
+                "tool_results": [{"name": "create_ticket", "ok": True}],
+            },
+            {
+                "run_id": "latest-draft",
+                "status": "completed",
+                "answer": "标题：新草稿\n优先级：P1\n描述：\n新内容\n当前状态：仅生成草稿",
+                "tool_results": [],
+                "plan": {"steps": []},
+            },
+        ]
+    }
+
+    draft = _ticket_draft_from_history(state)
+
+    assert draft is not None
+    assert draft["run_id"] == "latest-draft"
+    assert draft["title"] == "新草稿"
+    assert draft["detail"] == "新内容"
+    assert draft["severity"] == "P1"
+    assert draft["fingerprint"]
+
+
+def test_confirmation_ignores_incomplete_or_noncompleted_history() -> None:
+    from src.agent.nodes.tools import _ticket_draft_from_history
+
+    state = {
+        "conversation_history": [
+            {
+                "run_id": "incomplete",
+                "status": "completed",
+                "answer": "标题：不完整\n优先级：P1\n描述：\n",
+                "tool_results": [],
+            },
+            {
+                "run_id": "failed",
+                "status": "failed",
+                "answer": "标题：失败草稿\n优先级：P1\n描述：\n不可用",
+                "tool_results": [],
+            },
+        ]
+    }
+
+    assert _ticket_draft_from_history(state) is None
 
 
 def test_confirmation_without_previous_ticket_draft_does_not_write_confirmation_text() -> None:

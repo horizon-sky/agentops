@@ -239,14 +239,18 @@ async def test_explicit_follow_up_confirmation_creates_previous_ticket_draft(mon
         user_id="alice",
         conversation_history=[
             {
+                "run_id": "draft-run-1",
+                "status": "completed",
                 "query": "将刚才工单优先级改为 P1，先不要创建。",
                 "answer": (
                     "标题：DemoShop 订单服务故障跟进。[9cbaa5b1-d4dd-4738-8e4a-f8e07602285c]\n"
                     "优先级：P1（待确认）\n\n"
                     "描述：\n现象与证据：订单服务 5xx 与延迟升高。\n"
                     "调查判断：根因仍待确认。\n"
-                    "本次未调用工具。\n请确认是否按以上草稿创建。"
+                    "当前状态：本次未调用工具。\n你可以在下一轮单独回复‘确认创建’。"
                 ),
+                "tool_results": [],
+                "plan": {"steps": [{"kind": "answer", "status": "done"}]},
             }
         ],
     )

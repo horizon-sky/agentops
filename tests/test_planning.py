@@ -95,12 +95,16 @@ def test_dynamic_plan_cannot_replace_confirmed_ticket_draft_with_confirmation_te
         "ticket_confirmation": True,
         "conversation_history": [
             {
+                "run_id": "draft-run-1",
+                "status": "completed",
                 "query": "创建跟进草稿",
                 "answer": (
                     "标题：订单服务故障跟进\n优先级：P1（待确认）\n\n"
                     "描述：\n订单服务 5xx 升高，根因待确认。\n"
-                    "请确认是否按以上草稿创建。"
+                    "当前状态：等待确认。"
                 ),
+                "tool_results": [],
+                "plan": {"steps": [{"kind": "answer", "status": "done"}]},
             }
         ],
         "flags": {"routing": True},

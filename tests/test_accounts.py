@@ -480,9 +480,13 @@ async def test_new_run_receives_only_recent_completed_history_from_same_session(
     assert response.status_code == 201
     await runs._tasks[response.json()["id"]]
 
-    assert captured["history"] == [
-        {"query": "创建 P2 跟进工单", "answer": "草稿标题：订单服务异常；优先级：P2"}
-    ]
+    history = captured["history"]
+    assert len(history) == 1
+    assert history[0]["query"] == "创建 P2 跟进工单"
+    assert history[0]["answer"] == "草稿标题：订单服务异常；优先级：P2"
+    assert history[0]["status"] == "completed"
+    assert history[0]["tool_results"] == []
+    assert history[0]["approval_history"] == []
 
 
 @pytest.mark.parametrize("approved", [False, True])

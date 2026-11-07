@@ -45,13 +45,13 @@ class AgentState(TypedDict, total=False):
     session_id: str
     user_id: str
     query: str
-    conversation_history: list[dict[str, str]]
+    conversation_history: list[dict[str, Any]]
     intent: str
     requested_tools: list[str]
     confident: bool
     write_denied: bool
     ticket_confirmation: bool
-    ticket_draft: dict[str, str]
+    ticket_draft: dict[str, Any]
     ticket_confirmation_error: bool
     plan: dict[str, Any]
     citations: list[dict[str, Any]]

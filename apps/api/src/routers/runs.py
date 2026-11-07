@@ -33,10 +33,20 @@ router = APIRouter(prefix="/runs", tags=["runs"], dependencies=[Depends(current_
 _tasks: dict[str, asyncio.Task[None]] = {}
 
 
-async def _conversation_history(db: AsyncSession, session_id: uuid.UUID) -> list[dict[str, str]]:
+async def _conversation_history(db: AsyncSession, session_id: uuid.UUID) -> list[dict[str, object]]:
     rows = (
         await db.execute(
-            select(Run.query, Run.answer)
+            select(
+                Run.id,
+                Run.query,
+                Run.answer,
+                Run.status,
+                Run.tool_results,
+                Run.plan,
+                Run.approval,
+                Run.approval_history,
+                Run.started_at,
+            )
             .where(
                 Run.session_id == session_id,
                 Run.status.in_(["completed", "rejected"]),
@@ -48,8 +58,28 @@ async def _conversation_history(db: AsyncSession, session_id: uuid.UUID) -> list
         )
     ).all()
     return [
-        {"query": query[:2000], "answer": answer[:4000]}
-        for query, answer in reversed(rows)
+        {
+            "run_id": str(run_id),
+            "query": query[:2000],
+            "answer": answer[:4000],
+            "status": status,
+            "tool_results": tool_results or [],
+            "plan": plan or {},
+            "approval": approval or {},
+            "approval_history": approval_history or [],
+            "started_at": started_at.isoformat() if started_at else None,
+        }
+        for (
+            run_id,
+            query,
+            answer,
+            status,
+            tool_results,
+            plan,
+            approval,
+            approval_history,
+            started_at,
+        ) in reversed(rows)
     ]
 
 

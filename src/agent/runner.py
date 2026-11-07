@@ -28,7 +28,7 @@ class Runner(Protocol):
         emit: Emit,
         *,
         user_id: str = "",
-        conversation_history: list[dict[str, str]] | None = None,
+        conversation_history: list[dict[str, Any]] | None = None,
     ) -> None: ...
 
 

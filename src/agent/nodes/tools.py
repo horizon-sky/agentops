@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 from typing import Any
 
@@ -52,7 +53,10 @@ def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
             "args": (
                 {
                     **(
-                        ticket_draft
+                        {
+                            key: ticket_draft[key]
+                            for key in ("title", "detail", "severity")
+                        }
                         if confirmation and ticket_draft is not None
                         else {
                             "title": query[:300],
@@ -74,26 +78,53 @@ def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
     return calls
 
 
-def _ticket_draft_from_history(state: AgentState) -> dict[str, str] | None:
+def _ticket_draft_from_history(state: AgentState) -> dict[str, Any] | None:
     history = state.get("conversation_history", [])
-    if not history:
-        return None
-    answer = history[-1].get("answer", "")
-    if "请确认是否按以上草稿" not in answer:
-        return None
-    title_match = re.search(r"(?m)^标题：(.+?)\s*$", answer)
-    priority_match = re.search(r"(?m)^优先级：\s*(P[0-3])(?:\b|（)", answer)
-    detail_match = re.search(
-        r"(?ms)^描述：\s*\n(.*?)(?=\n\s*(?:本次未调用工具|请确认是否按以上草稿))",
-        answer,
+    for turn in reversed(history):
+        if turn.get("status") != "completed" or _has_successful_ticket_write(turn):
+            continue
+        answer = turn.get("answer", "")
+        title_match = re.search(r"(?m)^标题：\s*(.+?)\s*$", answer)
+        priority_match = re.search(r"(?m)^优先级：\s*(P[0-3])(?:\b|（)", answer)
+        detail_match = re.search(
+            r"(?ms)^描述：\s*\n(.*?)(?=\n\s*(?:当前状态|本次未调用工具)\s*[：。\n]|\Z)",
+            answer,
+        )
+        if not title_match or not priority_match or not detail_match:
+            continue
+        title = re.sub(r"\s*\[[0-9a-fA-F-]{36}\]\s*$", "", title_match.group(1)).strip()
+        detail = detail_match.group(1).strip()
+        if not title or not detail:
+            continue
+        severity = priority_match.group(1)
+        canonical = f"{title}\n{severity}\n{detail}".encode()
+        return {
+            "title": title,
+            "detail": detail,
+            "severity": severity,
+            "run_id": str(turn.get("run_id", "")),
+            "fingerprint": hashlib.sha256(canonical).hexdigest(),
+        }
+    return None
+
+
+def _has_successful_ticket_write(turn: dict[str, Any]) -> bool:
+    if any(
+        result.get("name") == "create_ticket" and result.get("ok")
+        for result in turn.get("tool_results", [])
+    ):
+        return True
+    if any(
+        event.get("tool") == "create_ticket"
+        and event.get("event") == "executed"
+        and event.get("ok")
+        for event in turn.get("approval_history", [])
+    ):
+        return True
+    return any(
+        step.get("tool") == "create_ticket" and step.get("status") == "done"
+        for step in turn.get("plan", {}).get("steps", [])
     )
-    if not title_match or not priority_match or not detail_match:
-        return None
-    title = re.sub(r"\s*\[[0-9a-fA-F-]{36}\]\s*$", "", title_match.group(1)).strip()
-    detail = detail_match.group(1).strip()
-    if not title or not detail:
-        return None
-    return {"title": title, "detail": detail, "severity": priority_match.group(1)}
 
 
 async def tools(state: AgentState, config: Any | None = None) -> dict[str, Any]:
@@ -138,6 +169,8 @@ async def tools(state: AgentState, config: Any | None = None) -> dict[str, Any]:
                             "args": args,
                             "actor_id": state.get("user_id"),
                             "confirmation_text": state.get("query", ""),
+                            "draft_run_id": state.get("ticket_draft", {}).get("run_id"),
+                            "draft_fingerprint": state.get("ticket_draft", {}).get("fingerprint"),
                             "source": "explicit_follow_up_message",
                         },
                     )
