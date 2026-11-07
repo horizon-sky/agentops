@@ -435,8 +435,9 @@ async def test_completed_run_persists_echo_output(account_app):
         assert stored.answer == "hello"
 
 
+@pytest.mark.parametrize("long_answer", [False, True])
 async def test_new_run_receives_only_recent_completed_history_from_same_session(
-    account_app, monkeypatch
+    account_app, monkeypatch, long_answer
 ):
     client, factory, mail, _ = account_app
     headers = await signed_in(client, mail)
@@ -446,12 +447,15 @@ async def test_new_run_receives_only_recent_completed_history_from_same_session(
     session_b = (
         await client.post("/sessions", json={"title": "B"}, headers=headers)
     ).json()["id"]
+    draft_answer = "标题：订单服务异常\n优先级：P2\n描述：\n" + (
+        "测试内容" * 1200 if long_answer else "测试内容"
+    )
     async with factory() as db:
         db.add_all(
             [
                 Run(
                     session_id=uuid.UUID(session_a), status="completed",
-                    query="创建 P2 跟进工单", answer="草稿标题：订单服务异常；优先级：P2",
+                    query="创建 P2 跟进工单", answer=draft_answer,
                 ),
                 Run(
                     session_id=uuid.UUID(session_b), status="completed",
@@ -483,10 +487,18 @@ async def test_new_run_receives_only_recent_completed_history_from_same_session(
     history = captured["history"]
     assert len(history) == 1
     assert history[0]["query"] == "创建 P2 跟进工单"
-    assert history[0]["answer"] == "草稿标题：订单服务异常；优先级：P2"
+    assert history[0]["answer"] == draft_answer[:4000]
+    assert history[0]["answer_truncated"] is long_answer
     assert history[0]["status"] == "completed"
     assert history[0]["tool_results"] == []
     assert history[0]["approval_history"] == []
+    from src.agent.nodes.tools import _ticket_draft_from_history
+
+    draft = _ticket_draft_from_history({"conversation_history": history})
+    if long_answer:
+        assert draft is None
+    else:
+        assert draft["detail"] == "测试内容"
 
 
 @pytest.mark.parametrize("approved", [False, True])

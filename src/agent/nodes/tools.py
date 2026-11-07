@@ -23,12 +23,18 @@ _INTENT_TOOLS = {
     "general": [],
 }
 
+_DRAFT_FIELD = re.compile(
+    r"(?m)^[ \t]*(?:\*\*)?(标题|优先级|描述)(?:\*\*)?[：:](?:\*\*)?[ \t]*([^\n]*)$"
+)
+
 
 def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
     query = state.get("query", "")
     severity = re.search(r"(?<![A-Za-z0-9])P[0-3](?![A-Za-z0-9])", query, re.IGNORECASE)
     confirmation = state.get("ticket_confirmation", False)
-    ticket_draft = _ticket_draft_from_history(state) if confirmation else None
+    ticket_draft = (
+        state.get("ticket_draft") or _ticket_draft_from_history(state) if confirmation else None
+    )
     intent = state.get("intent")
     if confirmation and ticket_draft is not None:
         intent = "ticket"
@@ -81,31 +87,72 @@ def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
 def _ticket_draft_from_history(state: AgentState) -> dict[str, Any] | None:
     history = state.get("conversation_history", [])
     for turn in reversed(history):
-        if turn.get("status") != "completed" or _has_successful_ticket_write(turn):
+        # A successful write consumes all earlier drafts, regardless of answer wording.
+        if _has_successful_ticket_write(turn):
+            return None
+        if turn.get("status") != "completed":
             continue
         answer = turn.get("answer", "")
-        title_match = re.search(r"(?m)^标题：\s*(.+?)\s*$", answer)
-        priority_match = re.search(r"(?m)^优先级：\s*(P[0-3])(?:\b|（)", answer)
-        detail_match = re.search(
-            r"(?ms)^描述：\s*\n(.*?)(?=\n\s*(?:当前状态|本次未调用工具)\s*[：。\n]|\Z)",
-            answer,
+        fields = list(_DRAFT_FIELD.finditer(answer))
+        if not fields and "草稿" not in answer:
+            continue
+        # Never fall back when the newest draft is ambiguous or incomplete.
+        if [field.group(1) for field in fields] != ["标题", "优先级", "描述"]:
+            return None
+        if not turn.get("run_id") or turn.get("answer_truncated"):
+            return None
+        title_field, priority_field, detail_field = fields
+        priority_match = re.match(r"(P[0-3])(?:\b|（)", priority_field.group(2), re.IGNORECASE)
+        if not priority_match:
+            return None
+        title = re.sub(
+            r"\s*\[[0-9a-fA-F-]{36}\]\s*$", "", title_field.group(2)
         )
-        if not title_match or not priority_match or not detail_match:
-            continue
-        title = re.sub(r"\s*\[[0-9a-fA-F-]{36}\]\s*$", "", title_match.group(1)).strip()
-        detail = detail_match.group(1).strip()
+        detail = answer[detail_field.start(2):]
+        detail = re.split(
+            r"\n[ \t]*(?:当前状态|本次未调用工具)\s*[：。\n]|"
+            r"\n[ \t]*(?:请核对|请回复|你可以回复|你可以在下一轮)",
+            detail,
+            maxsplit=1,
+        )[0].strip()
+        title = title.strip()
         if not title or not detail:
-            continue
-        severity = priority_match.group(1)
-        canonical = f"{title}\n{severity}\n{detail}".encode()
+            return None
+        severity = priority_match.group(1).upper()
         return {
             "title": title,
             "detail": detail,
             "severity": severity,
             "run_id": str(turn.get("run_id", "")),
-            "fingerprint": hashlib.sha256(canonical).hexdigest(),
+            "fingerprint": _ticket_draft_fingerprint(title, severity, detail),
         }
     return None
+
+
+def _ticket_draft_fingerprint(title: str, severity: str, detail: str) -> str:
+    return hashlib.sha256(f"{title}\n{severity}\n{detail}".encode()).hexdigest()
+
+
+def _validate_ticket_draft_payload(
+    draft: dict[str, Any] | None, args: dict[str, Any]
+) -> None:
+    if draft is None:
+        raise ValueError("ticket draft is missing; refusing to create ticket")
+    if not draft.get("run_id"):
+        raise ValueError("ticket draft source is missing; refusing to create ticket")
+    title = str(args.get("title", "")).strip()
+    detail = str(args.get("detail", "")).strip()
+    severity = str(args.get("severity", "")).strip().upper()
+    if not title or not detail or severity not in {"P0", "P1", "P2", "P3"}:
+        raise ValueError("ticket draft payload is incomplete; refusing to create ticket")
+    fingerprint = _ticket_draft_fingerprint(title, severity, detail)
+    if (
+        draft.get("fingerprint") != fingerprint
+        or draft.get("title") != title
+        or draft.get("detail") != detail
+        or str(draft.get("severity", "")).upper() != severity
+    ):
+        raise ValueError("ticket payload does not match approved draft; refusing to create ticket")
 
 
 def _has_successful_ticket_write(turn: dict[str, Any]) -> bool:
@@ -156,6 +203,7 @@ async def tools(state: AgentState, config: Any | None = None) -> dict[str, Any]:
         if write:
             approval_id = key
             if step["tool"] == "create_ticket" and state.get("ticket_confirmation"):
+                _validate_ticket_draft_payload(state.get("ticket_draft"), args)
                 await emit(
                     event_of(
                         type="approval",
@@ -166,7 +214,7 @@ async def tools(state: AgentState, config: Any | None = None) -> dict[str, Any]:
                             "approval_id": approval_id,
                             "step_id": step_id,
                             "tool": step["tool"],
-                            "args": args,
+                            "args": dict(args),
                             "actor_id": state.get("user_id"),
                             "confirmation_text": state.get("query", ""),
                             "draft_run_id": state.get("ticket_draft", {}).get("run_id"),

@@ -62,6 +62,7 @@ async def _conversation_history(db: AsyncSession, session_id: uuid.UUID) -> list
             "run_id": str(run_id),
             "query": query[:2000],
             "answer": answer[:4000],
+            "answer_truncated": len(answer) > 4000,
             "status": status,
             "tool_results": tool_results or [],
             "plan": plan or {},

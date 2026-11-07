@@ -204,6 +204,7 @@ async def test_graph_runner_includes_prior_session_turn_in_answer_context() -> N
 async def test_explicit_follow_up_confirmation_creates_previous_ticket_draft(monkeypatch) -> None:
     from src.agent.model import ModelResult
     from src.agent.nodes.classify import IntentOut
+    from src.agent.nodes.tools import _ticket_draft_fingerprint
     from src.agent.state import ToolResult
     from src.tools.registry import ToolRegistry
 
@@ -239,13 +240,18 @@ async def test_explicit_follow_up_confirmation_creates_previous_ticket_draft(mon
         user_id="alice",
         conversation_history=[
             {
+                "run_id": "older-draft",
+                "status": "completed",
+                "answer": "标题：旧工单\n优先级：P2\n描述：\n旧内容\n当前状态：等待确认",
+            },
+            {
                 "run_id": "draft-run-1",
                 "status": "completed",
                 "query": "将刚才工单优先级改为 P1，先不要创建。",
                 "answer": (
-                    "标题：DemoShop 订单服务故障跟进。[9cbaa5b1-d4dd-4738-8e4a-f8e07602285c]\n"
-                    "优先级：P1（待确认）\n\n"
-                    "描述：\n现象与证据：订单服务 5xx 与延迟升高。\n"
+                    "**标题：** DemoShop 订单服务故障跟进。[9cbaa5b1-d4dd-4738-8e4a-f8e07602285c]\n"
+                    "**优先级：** P1（待确认）\n\n"
+                    "**描述：**\n现象与证据：订单服务 5xx 与延迟升高。\n"
                     "调查判断：根因仍待确认。\n"
                     "当前状态：本次未调用工具。\n你可以在下一轮单独回复‘确认创建’。"
                 ),
@@ -270,8 +276,36 @@ async def test_explicit_follow_up_confirmation_creates_previous_ticket_draft(mon
     assert approval["event"] == "confirmed"
     assert approval["actor_id"] == "alice"
     assert approval["confirmation_text"] == "确认创建，按刚才的 P1 草稿创建工单。"
+    assert approval["draft_run_id"] == "draft-run-1"
+    assert approval["draft_fingerprint"] == _ticket_draft_fingerprint(
+        "DemoShop 订单服务故障跟进。",
+        "P1",
+        "现象与证据：订单服务 5xx 与延迟升高。\n调查判断：根因仍待确认。",
+    )
+    assert {key: approval["args"][key] for key in ("title", "detail", "severity")} == {
+        "title": calls[0][1]["title"],
+        "detail": calls[0][1]["detail"],
+        "severity": calls[0][1]["severity"],
+    }
+    assert "idempotency_key" not in approval["args"]
     assert approval["source"] == "explicit_follow_up_message"
     assert not any(event.type == "hitl_request" for event in collector.events)
+
+    repeated = Collector()
+    await runner.run(
+        "repeat-confirmation", "确认创建", repeated, user_id="alice",
+        conversation_history=[
+            {"run_id": "draft-run-1", "status": "completed", "answer":
+             "标题：旧工单\n优先级：P1\n描述：\n旧内容\n当前状态：等待确认"},
+            {"run_id": "confirm-draft", "status": "completed", "answer": "已创建 OPS-1",
+             "tool_results": collector.payload_of("done")["tools"]},
+        ],
+    )
+    assert len(calls) == 1
+    assert "没有可匹配" in repeated.payload_of("done")["answer"]
+    assert not any(
+        event.type in {"approval", "hitl_request", "tool_result"} for event in repeated.events
+    )
 
 
 async def test_explicit_confirmation_without_matching_draft_never_writes(monkeypatch) -> None:
