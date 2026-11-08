@@ -26,6 +26,7 @@ _INTENT_TOOLS = {
 _DRAFT_FIELD = re.compile(
     r"(?m)^[ \t]*(?:\*\*)?(标题|优先级|描述)(?:\*\*)?[：:](?:\*\*)?[ \t]*([^\n]*)$"
 )
+_DRAFT_SECTION = re.compile(r"(?m)^[ \t]*#{1,6}[ \t]+(标题|优先级|描述)[ \t]*$")
 
 
 def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
@@ -94,21 +95,42 @@ def _ticket_draft_from_history(state: AgentState) -> dict[str, Any] | None:
             continue
         answer = turn.get("answer", "")
         fields = list(_DRAFT_FIELD.finditer(answer))
-        if not fields and "草稿" not in answer:
+        section_fields = list(_DRAFT_SECTION.finditer(answer))
+        if not fields and not section_fields and "草稿" not in answer:
             continue
         # Never fall back when the newest draft is ambiguous or incomplete.
-        if [field.group(1) for field in fields] != ["标题", "优先级", "描述"]:
-            return None
         if not turn.get("run_id") or turn.get("answer_truncated"):
             return None
-        title_field, priority_field, detail_field = fields
-        priority_match = re.match(r"(P[0-3])(?:\b|（)", priority_field.group(2), re.IGNORECASE)
+        if fields:
+            if [field.group(1) for field in fields] != ["标题", "优先级", "描述"]:
+                return None
+            title_value = fields[0].group(2)
+            priority_value = fields[1].group(2)
+            detail = answer[fields[2].start(2):]
+        elif section_fields:
+            labels = [field.group(1) for field in section_fields]
+            if len(section_fields) != 3 or len(set(labels)) != 3 or "标题" not in labels \
+                    or "优先级" not in labels or "描述" not in labels:
+                return None
+
+            sections: dict[str, str] = {}
+            for index, field in enumerate(section_fields):
+                end = (
+                    section_fields[index + 1].start()
+                    if index + 1 < len(section_fields)
+                    else len(answer)
+                )
+                sections[field.group(1)] = answer[field.end():end].strip()
+            title_value = _first_nonempty_line(sections["标题"])
+            priority_value = _first_nonempty_line(sections["优先级"])
+            detail = sections["描述"]
+        else:
+            return None
+
+        priority_match = re.match(r"(?:\*\*)?\s*(P[0-3])(?:\b|（)", priority_value, re.IGNORECASE)
         if not priority_match:
             return None
-        title = re.sub(
-            r"\s*\[[0-9a-fA-F-]{36}\]\s*$", "", title_field.group(2)
-        )
-        detail = answer[detail_field.start(2):]
+        title = re.sub(r"\s*\[[0-9a-fA-F-]{36}\]\s*$", "", _strip_markdown_value(title_value))
         detail = re.split(
             r"\n[ \t]*(?:当前状态|本次未调用工具)\s*[：。\n]|"
             r"\n[ \t]*(?:请核对|请回复|你可以回复|你可以在下一轮)",
@@ -127,6 +149,17 @@ def _ticket_draft_from_history(state: AgentState) -> dict[str, Any] | None:
             "fingerprint": _ticket_draft_fingerprint(title, severity, detail),
         }
     return None
+
+
+def _first_nonempty_line(value: str) -> str:
+    return next((line.strip() for line in value.splitlines() if line.strip()), "")
+
+
+def _strip_markdown_value(value: str) -> str:
+    value = value.strip()
+    if value.startswith("**") and value.endswith("**"):
+        value = value[2:-2].strip()
+    return value
 
 
 def _ticket_draft_fingerprint(title: str, severity: str, detail: str) -> str:

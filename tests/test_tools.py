@@ -162,6 +162,34 @@ def test_confirmation_does_not_fall_back_from_markdown_draft_to_older_draft() ->
     assert draft["severity"] == "P2"
 
 
+def test_confirmation_parses_heading_sections_from_actual_draft_response() -> None:
+    from src.agent.nodes.tools import _ticket_draft_from_history
+
+    answer = (
+        "以下为**待确认的工单草稿**，目前**未创建工单**。\n\n"
+        "### 标题\n"
+        "**[合成评测记录] DemoShop 订单服务 20:30–21:00 UTC 出现 5xx、延迟升高及数据库连接池压力"
+        "[d240677d-a84f-4bb3-a858-debeb9bbd6a9]**\n\n"
+        "### 描述\n"
+        "**记录性质：**本记录用于合成评测。\n"
+        "**根因状态：**根因尚待确认。\n\n"
+        "### 优先级\n"
+        "**P2**\n\n"
+        "**处理方案：**请先确认以上标题、描述和 P2 优先级。"
+    )
+
+    draft = _ticket_draft_from_history(
+        {"conversation_history": [{"run_id": "draft-run", "status": "completed", "answer": answer}]}
+    )
+
+    assert draft is not None
+    assert draft["run_id"] == "draft-run"
+    assert draft["severity"] == "P2"
+    assert draft["title"].startswith("[合成评测记录] DemoShop 订单服务")
+    assert "根因尚待确认" in draft["detail"]
+    assert "处理方案" not in draft["detail"]
+
+
 def test_ticket_write_payload_must_match_bound_draft() -> None:
     from src.agent.nodes.tools import _ticket_draft_fingerprint, _validate_ticket_draft_payload
 
