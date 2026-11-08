@@ -27,6 +27,11 @@ _DRAFT_FIELD = re.compile(
     r"(?m)^[ \t]*(?:\*\*)?(标题|优先级|描述)(?:\*\*)?[：:](?:\*\*)?[ \t]*([^\n]*)$"
 )
 _DRAFT_SECTION = re.compile(r"(?m)^[ \t]*#{1,6}[ \t]+(标题|优先级|描述)[ \t]*$")
+_DRAFT_BOLD_SECTION = re.compile(r"(?m)^[ \t]*\*\*(标题|描述|优先级)\*\*[ \t]*$")
+_DRAFT_BOLD_PRIORITY = re.compile(
+    r"(?m)^[ \t]*\*\*优先级[：:][ \t]*(P[0-3])[^\n*]*\*\*[ \t]*$",
+    re.IGNORECASE,
+)
 
 
 def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
@@ -53,31 +58,39 @@ def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
             tools.append("create_ticket")
     if intent == "code" and "search_code" not in tools:
         tools.append("search_code")
+    if intent == "ticket" and not confirmation and "报告" not in query:
+        # 工单草稿由 answer 节点生成；draft_report 是独立的高风险报告工具，
+        # 不应因“草稿”二字被模型误选进两轮建单流程。
+        tools = [name for name in tools if name != "draft_report"]
     tools = list(dict.fromkeys([*_INTENT_TOOLS.get(intent, []), *tools]))
+
+    def tool_args(name: str) -> dict[str, Any]:
+        if name == "create_ticket":
+            return {
+                **(
+                    {
+                        key: ticket_draft[key]
+                        for key in ("title", "detail", "severity")
+                    }
+                    if confirmation and ticket_draft is not None
+                    else {
+                        "title": query[:300],
+                        "detail": query,
+                        "severity": severity.group().upper() if severity else "P2",
+                    }
+                )
+            }
+        if name == "query_metrics":
+            return {"service": "order-service", "window": "1h"}
+        if name == "draft_report":
+            return {
+                "title": query[:300],
+                "sections": ["现状", "根因", "处理方案", "后续改进"],
+            }
+        return {"query": query}
+
     calls = [
-        {
-            "name": name,
-            "args": (
-                {
-                    **(
-                        {
-                            key: ticket_draft[key]
-                            for key in ("title", "detail", "severity")
-                        }
-                        if confirmation and ticket_draft is not None
-                        else {
-                            "title": query[:300],
-                            "detail": query,
-                            "severity": severity.group().upper() if severity else "P2",
-                        }
-                    ),
-                }
-                if name == "create_ticket"
-                else {"service": "order-service", "window": "1h"}
-                if name == "query_metrics"
-                else {"query": query}
-            ),
-        }
+        {"name": name, "args": tool_args(name)}
         for name in tools
     ]
     if confirmation and ticket_draft is None:
@@ -101,9 +114,7 @@ def _ticket_draft_from_history(state: AgentState) -> dict[str, Any] | None:
         # Never fall back when the newest draft is ambiguous or incomplete.
         if not turn.get("run_id") or turn.get("answer_truncated"):
             return None
-        if fields:
-            if [field.group(1) for field in fields] != ["标题", "优先级", "描述"]:
-                return None
+        if fields and [field.group(1) for field in fields] == ["标题", "优先级", "描述"]:
             title_value = fields[0].group(2)
             priority_value = fields[1].group(2)
             detail = answer[fields[2].start(2):]
@@ -124,6 +135,18 @@ def _ticket_draft_from_history(state: AgentState) -> dict[str, Any] | None:
             title_value = _first_nonempty_line(sections["标题"])
             priority_value = _first_nonempty_line(sections["优先级"])
             detail = sections["描述"]
+        elif _DRAFT_BOLD_SECTION.search(answer):
+            bold_fields = list(_DRAFT_BOLD_SECTION.finditer(answer))
+            priority_inline = _DRAFT_BOLD_PRIORITY.search(answer)
+            labels = [field.group(1) for field in bold_fields]
+            if (
+                labels != ["标题", "描述"]
+                or priority_inline is None
+            ):
+                return None
+            title_value = _first_nonempty_line(answer[bold_fields[0].end():bold_fields[1].start()])
+            priority_value = priority_inline.group(1)
+            detail = answer[bold_fields[1].end():priority_inline.start()]
         else:
             return None
 

@@ -179,7 +179,13 @@ def test_confirmation_parses_heading_sections_from_actual_draft_response() -> No
     )
 
     draft = _ticket_draft_from_history(
-        {"conversation_history": [{"run_id": "draft-run", "status": "completed", "answer": answer}]}
+        {"conversation_history": [{
+            "run_id": "draft-run",
+            "status": "completed",
+            "answer": answer,
+            "tool_results": [{"name": "draft_report", "ok": False}],
+            "plan": {"steps": [{"tool": "draft_report", "status": "failed"}]},
+        }]}
     )
 
     assert draft is not None
@@ -188,6 +194,64 @@ def test_confirmation_parses_heading_sections_from_actual_draft_response() -> No
     assert draft["title"].startswith("[合成评测记录] DemoShop 订单服务")
     assert "根因尚待确认" in draft["detail"]
     assert "处理方案" not in draft["detail"]
+
+
+def test_confirmation_parses_bold_sections_from_latest_online_draft_response() -> None:
+    from src.agent.nodes.tools import _ticket_draft_from_history
+
+    answer = (
+        "证据不足：需要成功生成并展示草稿。\n\n"
+        "以下为可供确认的工单草稿，尚未创建工单。\n\n"
+        "**标题**\n\n"
+        "[合成评测][DemoShop] 订单服务 5xx 与延迟升高、数据库连接池压力待调查\n\n"
+        "**描述**\n\n"
+        "本工单为合成评测记录。根因尚待确认，本工单用于记录待调查事项。\n\n"
+        "已知现象与证据：订单服务 5xx 比例从 0.4% 升至 6.8%。\n\n"
+        "**优先级：P2（暂定，按你的要求）**\n\n"
+        "工具状态：未成功生成报告。\n\n"
+        "请确认是否按以上标题、描述和 P2 优先级创建工单。"
+    )
+
+    draft = _ticket_draft_from_history(
+        {"conversation_history": [{"run_id": "draft-run", "status": "completed", "answer": answer}]}
+    )
+
+    assert draft is not None
+    assert draft["title"].startswith("[合成评测][DemoShop]")
+    assert draft["severity"] == "P2"
+    assert "5xx 比例" in draft["detail"]
+    assert "工具状态" not in draft["detail"]
+    assert "请确认" not in draft["detail"]
+
+
+def test_ticket_draft_flow_does_not_select_report_tool_for_word_draft() -> None:
+    from src.agent.nodes.tools import _planned_calls
+
+    calls = _planned_calls(
+        {
+            "intent": "ticket",
+            "query": "请生成一份工单草稿，先不要创建，等我确认。",
+            "requested_tools": ["draft_report"],
+        }
+    )
+
+    assert calls == []
+
+
+def test_explicit_report_tool_receives_schema_compatible_arguments() -> None:
+    from src.agent.nodes.tools import _planned_calls
+
+    calls = _planned_calls(
+        {
+            "intent": "ticket",
+            "query": "请生成故障处理报告模板",
+            "requested_tools": ["draft_report"],
+        }
+    )
+
+    report = next(call for call in calls if call["name"] == "draft_report")
+    assert report["args"]["title"] == "请生成故障处理报告模板"
+    assert report["args"]["sections"]
 
 
 def test_ticket_write_payload_must_match_bound_draft() -> None:
