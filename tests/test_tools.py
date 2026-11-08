@@ -250,6 +250,33 @@ def test_confirmation_parses_bold_priority_section_with_value_on_next_line() -> 
     assert "当前仅展示" not in draft["detail"]
 
 
+def test_confirmation_draft_detail_excludes_post_draft_status_and_follow_up_text() -> None:
+    from src.agent.nodes.tools import _ticket_draft_from_history
+
+    answer = (
+        "以下为待确认工单草稿。\n\n"
+        "**标题：** 订单服务故障跟进\n"
+        "**优先级：** P2\n\n"
+        "**描述：**\n"
+        "已知现象：order-service 5xx 从 0.4% 升至 6.8%。"
+        "[9cbaa5b1-d4dd-4738-8e4a-f8e07602285c]\n"
+        "根因尚待确认。\n\n"
+        "可补充告警时间、接口、用户现象和负责人后完善草稿。"
+        "**当前未创建工单，无工单编号。**"
+    )
+
+    draft = _ticket_draft_from_history(
+        {"conversation_history": [{"run_id": "draft-run", "status": "completed", "answer": answer}]}
+    )
+
+    assert draft is not None
+    assert "5xx 从 0.4% 升至 6.8%" in draft["detail"]
+    assert "[9cbaa5b1-d4dd-4738-8e4a-f8e07602285c]" in draft["detail"]
+    assert "根因尚待确认" in draft["detail"]
+    assert "可补充告警时间" not in draft["detail"]
+    assert "当前未创建工单" not in draft["detail"]
+
+
 def test_ticket_draft_flow_does_not_select_report_tool_for_word_draft() -> None:
     from src.agent.nodes.tools import _planned_calls
 

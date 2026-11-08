@@ -162,7 +162,7 @@ def _ticket_draft_from_history(state: AgentState) -> dict[str, Any] | None:
         title = re.sub(r"\s*\[[0-9a-fA-F-]{36}\]\s*$", "", _strip_markdown_value(title_value))
         detail = re.split(
             r"\n[ \t]*(?:当前状态|本次未调用工具)\s*[：。\n]|"
-            r"\n[ \t]*(?:请核对|请回复|你可以回复|你可以在下一轮)",
+            r"\n[ \t]*(?:请核对|请回复|你可以回复|你可以在下一轮|可补充)",
             detail,
             maxsplit=1,
         )[0].strip()
