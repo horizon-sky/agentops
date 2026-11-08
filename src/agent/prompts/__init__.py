@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-PROMPT_VERSION = "2026.11.06-v1"
+PROMPT_VERSION = "2026.11.08-v1"
 
 SYSTEM_CLASSIFY = """你是研发工单分流助手。判断用户问题的意图类型，只输出结构化结果。
 可选意图：incident（线上故障/报警排查）、code（代码定位/改动咨询）、

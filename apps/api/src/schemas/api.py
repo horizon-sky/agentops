@@ -39,6 +39,7 @@ class RunOut(BaseModel):
     retrieval: dict[str, Any] = Field(default_factory=dict)
     tool_results: list[dict[str, Any]] = Field(default_factory=list)
     plan: dict[str, Any] = Field(default_factory=dict)
+    ticket_draft: dict[str, Any] = Field(default_factory=dict)
     approval: dict[str, Any] = Field(default_factory=dict)
     approval_history: list[dict[str, Any]] = Field(default_factory=list)
     contract_version: int = 1

@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     # ---- 运行时开关 ----
     mcp_mode: str = "inprocess"  # inprocess | stdio
     agent_mode: str = "echo"  # echo（链路跑通） | graph（LangGraph 编排，M2 启用）
-    prompt_version: str = "2026.11.06-v1"
+    prompt_version: str = "2026.11.08-v1"
     agent_conditional_routing: bool = False
     agent_targeted_retry: bool = False
     agent_dynamic_plan: bool = False

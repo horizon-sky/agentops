@@ -495,17 +495,14 @@ async def test_new_run_receives_only_recent_completed_history_from_same_session(
     from src.agent.nodes.tools import _ticket_draft_from_history
 
     draft = _ticket_draft_from_history({"conversation_history": history})
-    if long_answer:
-        assert draft is None
-    else:
-        assert draft["detail"] == "测试内容"
+    assert draft is None
 
 
-@pytest.mark.parametrize("approved", [False, True])
-async def test_local_api_restores_plan_and_resumes_approval_once(
-    account_app, monkeypatch, approved
+async def test_local_api_persists_draft_then_creates_on_follow_up_confirmation(
+    account_app, monkeypatch
 ):
     from src.agent.model import ModelResult
+    from src.agent.nodes.answer import TicketDraftOut
     from src.agent.nodes.classify import IntentOut
     from src.tools.registry import ToolRegistry
 
@@ -514,6 +511,16 @@ async def test_local_api_restores_plan_and_resumes_approval_once(
             if response_model is IntentOut:
                 return ModelResult(
                     parsed=IntentOut(intent="ticket", requested_tools=["create_ticket"])
+                )
+            if response_model is TicketDraftOut:
+                return ModelResult(
+                    parsed=TicketDraftOut(
+                        title="订单服务故障跟进",
+                        detail="订单服务 5xx 升高，根因待确认。",
+                        severity="P1",
+                        citations=[],
+                        unknowns=["根因待确认"],
+                    )
                 )
             return ModelResult()
 
@@ -532,65 +539,60 @@ async def test_local_api_restores_plan_and_resumes_approval_once(
         await client.post("/sessions", json={"title": "Local approval"}, headers=headers)
     ).json()["id"]
     response = await client.post(
-        "/runs", json={"session_id": session_id, "query": "创建 P1 工单"}, headers=headers
+        "/runs",
+        json={"session_id": session_id, "query": "创建 P1 跟进工单，先展示草稿，等待确认"},
+        headers=headers,
     )
     assert response.status_code == 201
     run_id = response.json()["id"]
     await runs._tasks[run_id]
     snapshot = (await client.get(f"/sessions/{session_id}/runs", headers=headers)).json()[0]
-    assert snapshot["status"] == "awaiting_approval"
+    assert snapshot["status"] == "completed"
     assert snapshot["plan"]["version"] == 1
-    approval_id = snapshot["approval"]["approval_id"]
-    write = next(step for step in snapshot["plan"]["steps"] if step["tool"] == "create_ticket")
-    assert approval_id == f"{run_id}:{write['id']}"
-    assert not any(result["name"] == "search_code" for result in snapshot["tool_results"])
+    assert snapshot["ticket_draft"]["title"] == "订单服务故障跟进"
+    assert snapshot["ticket_draft"]["severity"] == "P1"
+    assert snapshot["ticket_draft"]["detail"] == "订单服务 5xx 升高，根因待确认。"
+    assert snapshot["tool_results"] == []
     async with factory() as db:
         assert await db.scalar(select(Ticket)) is None
-    assert (
-        await client.post(
-            f"/runs/{run_id}/resume", json={"ok": approved, "approval_id": "stale"}, headers=headers
-        )
-    ).status_code == 409
 
-    # New-run switches must not change a waiting run's graph or checkpoint.
-    settings.agent_conditional_routing = False
-    settings.agent_targeted_retry = False
-    decision = {
-        "ok": approved,
-        "approval_id": approval_id,
-        "confirmation_text": "确认创建" if approved else "拒绝创建",
-    }
-    if approved:
-        missing_confirmation = await client.post(
-            f"/runs/{run_id}/resume",
-            json={"ok": True, "approval_id": approval_id},
-            headers=headers,
-        )
-        assert missing_confirmation.status_code == 400
-        async with factory() as db:
-            assert await db.scalar(select(Ticket)) is None
-    assert (
-        await client.post(f"/runs/{run_id}/resume", json=decision, headers=headers)
-    ).status_code == 200
-    await runs._tasks[f"{run_id}:resume"]
-    assert (
-        await client.post(f"/runs/{run_id}/resume", json=decision, headers=headers)
-    ).status_code == 409
-    restored = (await client.get(f"/sessions/{session_id}/runs", headers=headers)).json()[0]
-    assert restored["status"] == ("completed" if approved else "rejected")
+    confirmation = await client.post(
+        "/runs", json={"session_id": session_id, "query": "确认创建"}, headers=headers
+    )
+    assert confirmation.status_code == 201
+    confirmation_id = confirmation.json()["id"]
+    await runs._tasks[confirmation_id]
+    restored = next(
+        item for item in (await client.get(f"/sessions/{session_id}/runs", headers=headers)).json()
+        if item["id"] == confirmation_id
+    )
+    assert restored["status"] == "completed"
     assert restored["approval"] == {}
-    assert len(restored["approval_history"]) == 3
-    assert restored["approval_history"][0]["event"] == "requested"
-    assert restored["approval_history"][1]["event"] == "decision"
-    assert restored["approval_history"][1]["ok"] is approved
-    assert restored["approval_history"][2]["event"] == "executed"
-    assert restored["approval_history"][2]["args"]["title"] == "创建 P1 工单"
     assert sum(result["name"] == "create_ticket" for result in restored["tool_results"]) == 1
+    confirmed = next(item for item in restored["approval_history"] if item["event"] == "confirmed")
+    assert confirmed["draft_run_id"] == run_id
+    assert confirmed["draft_fingerprint"] == snapshot["ticket_draft"]["fingerprint"]
+    assert confirmed["source"] == "explicit_follow_up_message"
     async with factory() as db:
         tickets = list(await db.scalars(select(Ticket)))
-        assert len(tickets) == int(approved)
-        if approved:
-            assert tickets[0].idempotency_key == approval_id
+        assert len(tickets) == 1
+        assert tickets[0].title == "订单服务故障跟进"
+        assert tickets[0].severity == "P1"
+        assert tickets[0].detail == snapshot["ticket_draft"]["detail"]
+        assert tickets[0].run_id == uuid.UUID(confirmation_id)
+
+    repeated = await client.post(
+        "/runs", json={"session_id": session_id, "query": "确认创建"}, headers=headers
+    )
+    await runs._tasks[repeated.json()["id"]]
+    repeated_snapshot = next(
+        item for item in (await client.get(f"/sessions/{session_id}/runs", headers=headers)).json()
+        if item["id"] == repeated.json()["id"]
+    )
+    assert repeated_snapshot["tool_results"] == []
+    assert "没有可匹配" in repeated_snapshot["answer"]
+    async with factory() as db:
+        assert len(list(await db.scalars(select(Ticket)))) == 1
 
 
 async def test_document_upload_passes_server_identity_and_enforces_limits(account_app, monkeypatch):

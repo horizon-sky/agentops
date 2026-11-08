@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import re
 import uuid
 from contextlib import contextmanager
@@ -29,6 +30,27 @@ from src.db.eval_reports import latest_report, publish_report
 from src.db.models import Document, EvalRun, Run, Session, Ticket, User
 from src.eval_report import CompletedEvalReport
 from src.rag.ingest import ingest_document
+
+
+def load_agentops_materials(dataset_path: Path) -> list[dict[str, str]]:
+    dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
+    material_path = dataset_path.parent / Path(dataset["source_material"]).name
+    sections = re.split(r"(?m)^## 资料 \d+：[^\n]*\n", material_path.read_text(encoding="utf-8"))
+    materials = []
+    for section in sections[1:5]:
+        title = re.search(r"(?m)^\*\*标题：\*\*\s*(.+)$", section)
+        source = re.search(r"(?m)^\*\*来源：\*\*\s*(.+)$", section)
+        body = re.search(r"(?ms)^\*\*正文：\*\*\s*\n?(.*?)(?=^## |\Z)", section)
+        if not title or not source or not body or not body.group(1).strip():
+            raise ValueError("Invalid AgentOps evaluation material section")
+        materials.append({
+            "title": title.group(1).strip(),
+            "source": source.group(1).strip(),
+            "content": body.group(1).strip(),
+        })
+    if len(materials) != len(dataset["source_documents"]):
+        raise ValueError("AgentOps evaluation dataset must have exactly four source materials")
+    return materials
 
 
 def evaluation_settings(settings: Settings, with_model: bool) -> Settings:
@@ -160,6 +182,23 @@ async def evaluate(settings: Settings, schema: str, args):
             db.add(user)
             await db.commit()
             user_id = str(user.id)
+        if args.agentops_eval_v1:
+            dataset_path = (
+                Path(__file__).resolve().parent.parent / "evals" / "agentops_eval_v1.json"
+            )
+            for material in load_agentops_materials(dataset_path):
+                await ingest_document(
+                    title=material["title"],
+                    source=material["source"],
+                    version="agentops_eval_v1",
+                    content=material["content"],
+                    settings=settings,
+                    owner_id=user.id,
+                )
+            return await runner.main(
+                args.limit, args.offset, user_id, "staging", settings=settings,
+                dataset_path=dataset_path, include_holdout=args.include_holdout,
+            )
         await ingest_document(
             title="评测测试文档", source="evaluation-fixture", version="eval-fixture-v1",
             content=("订单服务出现 5xx、下单超时或支付服务 p99 延迟升高时，先检查服务错误率、"
@@ -179,6 +218,8 @@ def main() -> int:
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
     parser.add_argument("--storage-check", action="store_true")
     parser.add_argument("--with-model", action="store_true", help="Enable configured paid services")
+    parser.add_argument("--agentops-eval-v1", action="store_true")
+    parser.add_argument("--include-holdout", action="store_true")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--offset", type=int, default=0)
     args = parser.parse_args()

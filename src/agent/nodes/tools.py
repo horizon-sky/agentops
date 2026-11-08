@@ -23,17 +23,6 @@ _INTENT_TOOLS = {
     "general": [],
 }
 
-_DRAFT_FIELD = re.compile(
-    r"(?m)^[ \t]*(?:\*\*)?(标题|优先级|描述)(?:\*\*)?[：:](?:\*\*)?[ \t]*([^\n]*)$"
-)
-_DRAFT_SECTION = re.compile(r"(?m)^[ \t]*#{1,6}[ \t]+(标题|优先级|描述)[ \t]*$")
-_DRAFT_BOLD_SECTION = re.compile(r"(?m)^[ \t]*\*\*(标题|描述|优先级)\*\*[ \t]*$")
-_DRAFT_BOLD_PRIORITY = re.compile(
-    r"(?m)^[ \t]*\*\*优先级[：:][ \t]*(P[0-3])[^\n*]*\*\*[ \t]*$",
-    re.IGNORECASE,
-)
-
-
 def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
     query = state.get("query", "")
     severity = re.search(r"(?<![A-Za-z0-9])P[0-3](?![A-Za-z0-9])", query, re.IGNORECASE)
@@ -62,6 +51,8 @@ def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
         # 工单草稿由 answer 节点生成；draft_report 是独立的高风险报告工具，
         # 不应因“草稿”二字被模型误选进两轮建单流程。
         tools = [name for name in tools if name != "draft_report"]
+    if intent == "ticket" and not confirmation:
+        tools = [name for name in tools if name != "create_ticket"]
     tools = list(dict.fromkeys([*_INTENT_TOOLS.get(intent, []), *tools]))
 
     def tool_args(name: str) -> dict[str, Any]:
@@ -99,96 +90,40 @@ def _planned_calls(state: AgentState) -> list[dict[str, Any]]:
 
 
 def _ticket_draft_from_history(state: AgentState) -> dict[str, Any] | None:
+    from src.agent.nodes.classify import TICKET_DENIAL_PHRASES
+
     history = state.get("conversation_history", [])
     for turn in reversed(history):
+        if any(phrase in str(turn.get("query", "")) for phrase in TICKET_DENIAL_PHRASES):
+            return None
         # A successful write consumes all earlier drafts, regardless of answer wording.
         if _has_successful_ticket_write(turn):
             return None
         if turn.get("status") != "completed":
             continue
-        answer = turn.get("answer", "")
-        fields = list(_DRAFT_FIELD.finditer(answer))
-        section_fields = list(_DRAFT_SECTION.finditer(answer))
-        if not fields and not section_fields and "草稿" not in answer:
-            continue
-        # Never fall back when the newest draft is ambiguous or incomplete.
-        if not turn.get("run_id") or turn.get("answer_truncated"):
-            return None
-        if fields and [field.group(1) for field in fields] == ["标题", "优先级", "描述"]:
-            title_value = fields[0].group(2)
-            priority_value = fields[1].group(2)
-            detail = answer[fields[2].start(2):]
-        elif section_fields:
-            labels = [field.group(1) for field in section_fields]
-            if len(section_fields) != 3 or len(set(labels)) != 3 or "标题" not in labels \
-                    or "优先级" not in labels or "描述" not in labels:
+        stored_draft = turn.get("ticket_draft")
+        if stored_draft:
+            if not _valid_stored_ticket_draft(stored_draft, turn.get("run_id", "")):
                 return None
-
-            sections: dict[str, str] = {}
-            for index, field in enumerate(section_fields):
-                end = (
-                    section_fields[index + 1].start()
-                    if index + 1 < len(section_fields)
-                    else len(answer)
-                )
-                sections[field.group(1)] = answer[field.end():end].strip()
-            title_value = _first_nonempty_line(sections["标题"])
-            priority_value = _first_nonempty_line(sections["优先级"])
-            detail = sections["描述"]
-        elif _DRAFT_BOLD_SECTION.search(answer):
-            bold_fields = list(_DRAFT_BOLD_SECTION.finditer(answer))
-            priority_inline = _DRAFT_BOLD_PRIORITY.search(answer)
-            labels = [field.group(1) for field in bold_fields]
-            if labels == ["标题", "描述", "优先级"]:
-                title_value = _first_nonempty_line(
-                    answer[bold_fields[0].end():bold_fields[1].start()]
-                )
-                detail = answer[bold_fields[1].end():bold_fields[2].start()]
-                priority_value = _first_nonempty_line(answer[bold_fields[2].end():])
-            elif labels == ["标题", "描述"] and priority_inline is not None:
-                title_value = _first_nonempty_line(
-                    answer[bold_fields[0].end():bold_fields[1].start()]
-                )
-                priority_value = priority_inline.group(1)
-                detail = answer[bold_fields[1].end():priority_inline.start()]
-            else:
-                return None
-        else:
+            return dict(stored_draft)
+        # Legacy rendered text is deliberately non-authoritative. If it looks like
+        # a draft, stop here instead of approving an older draft from this session.
+        answer = str(turn.get("answer", ""))
+        if "草稿" in answer or "标题：" in answer or "**标题" in answer:
             return None
-
-        priority_match = re.match(r"(?:\*\*)?\s*(P[0-3])(?:\b|（)", priority_value, re.IGNORECASE)
-        if not priority_match:
-            return None
-        title = re.sub(r"\s*\[[0-9a-fA-F-]{36}\]\s*$", "", _strip_markdown_value(title_value))
-        detail = re.split(
-            r"\n[ \t]*(?:当前状态|本次未调用工具)\s*[：。\n]|"
-            r"\n[ \t]*(?:请核对|请回复|你可以回复|你可以在下一轮|可补充)",
-            detail,
-            maxsplit=1,
-        )[0].strip()
-        title = title.strip()
-        if not title or not detail:
-            return None
-        severity = priority_match.group(1).upper()
-        return {
-            "title": title,
-            "detail": detail,
-            "severity": severity,
-            "run_id": str(turn.get("run_id", "")),
-            "fingerprint": _ticket_draft_fingerprint(title, severity, detail),
-        }
     return None
 
 
-def _first_nonempty_line(value: str) -> str:
-    return next((line.strip() for line in value.splitlines() if line.strip()), "")
-
-
-def _strip_markdown_value(value: str) -> str:
-    value = value.strip()
-    if value.startswith("**") and value.endswith("**"):
-        value = value[2:-2].strip()
-    return value
+def _valid_stored_ticket_draft(draft: Any, run_id: str) -> bool:
+    if not isinstance(draft, dict) or draft.get("run_id") != str(run_id):
+        return False
+    title = str(draft.get("title", "")).strip()
+    detail = str(draft.get("detail", "")).strip()
+    severity = str(draft.get("severity", "")).upper().strip()
+    fingerprint = str(draft.get("fingerprint", ""))
+    return bool(title and detail and severity in {"P0", "P1", "P2", "P3"}) and (
+        fingerprint == _ticket_draft_fingerprint(title, severity, detail)
+    )
 
 
 def _ticket_draft_fingerprint(title: str, severity: str, detail: str) -> str:

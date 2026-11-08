@@ -78,6 +78,7 @@ async def list_session_runs(
             retrieval=row.retrieval or {},
             tool_results=row.tool_results or [],
             plan=row.plan or {},
+            ticket_draft=row.ticket_draft or {},
             approval=row.approval or {},
             approval_history=row.approval_history or [],
             contract_version=row.contract_version,

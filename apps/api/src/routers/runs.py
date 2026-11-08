@@ -40,6 +40,7 @@ async def _conversation_history(db: AsyncSession, session_id: uuid.UUID) -> list
                 Run.id,
                 Run.query,
                 Run.answer,
+                Run.ticket_draft,
                 Run.status,
                 Run.tool_results,
                 Run.plan,
@@ -62,6 +63,7 @@ async def _conversation_history(db: AsyncSession, session_id: uuid.UUID) -> list
             "run_id": str(run_id),
             "query": query[:2000],
             "answer": answer[:4000],
+            "ticket_draft": ticket_draft or {},
             "answer_truncated": len(answer) > 4000,
             "status": status,
             "tool_results": tool_results or [],
@@ -74,6 +76,7 @@ async def _conversation_history(db: AsyncSession, session_id: uuid.UUID) -> list
             run_id,
             query,
             answer,
+            ticket_draft,
             status,
             tool_results,
             plan,
@@ -114,6 +117,8 @@ async def _persist_run_result(run_id: str, settings: Settings, event: AgentEvent
                     setattr(run, field, payload[field])
             if "tools" in payload:
                 run.tool_results = payload["tools"]
+            if "ticket_draft" in payload:
+                run.ticket_draft = payload["ticket_draft"] or {}
             if event.type == "hitl_request":
                 run.approval = payload
                 history = list(run.approval_history or [])
@@ -215,6 +220,7 @@ async def create_run(
         model_version=settings.strong_model,
         prompt_version=settings.prompt_version,
         flags=settings.agent_flags(),
+        started_at=datetime.now(UTC),
     )
     db.add(run)
     await db.commit()

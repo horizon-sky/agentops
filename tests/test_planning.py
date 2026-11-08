@@ -45,7 +45,7 @@ def test_static_routes(intent, tools, retrieve):
     [
         (
             "根据现有信息拟一张 P2 跟进工单，先展示标题、描述和优先级，等待我确认后再创建。",
-            ["create_ticket"],
+            [],
         ),
         ("将刚才工单优先级改为 P1，但先不要创建，等我确认。", []),
         ("目前没有发布记录、日志和 Trace。请给出下一步排查清单。", []),
@@ -88,21 +88,30 @@ def test_dynamic_plan_cannot_add_unrequested_metrics_tool():
 
 
 def test_dynamic_plan_cannot_replace_confirmed_ticket_draft_with_confirmation_text():
+    from src.agent.nodes.tools import _ticket_draft_fingerprint
+
+    draft = {
+        "title": "订单服务故障跟进",
+        "detail": "订单服务 5xx 升高，根因待确认。",
+        "severity": "P1",
+        "run_id": "draft-run-1",
+    }
+    draft["fingerprint"] = _ticket_draft_fingerprint(
+        draft["title"], draft["severity"], draft["detail"]
+    )
     state = {
         "intent": "ticket",
         "query": "确认创建",
         "requested_tools": ["create_ticket"],
         "ticket_confirmation": True,
+        "ticket_draft": draft,
         "conversation_history": [
             {
                 "run_id": "draft-run-1",
                 "status": "completed",
                 "query": "创建跟进草稿",
-                "answer": (
-                    "标题：订单服务故障跟进\n优先级：P1（待确认）\n\n"
-                    "描述：\n订单服务 5xx 升高，根因待确认。\n"
-                    "当前状态：等待确认。"
-                ),
+                "answer": "以下为待确认的工单草稿。",
+                "ticket_draft": draft,
                 "tool_results": [],
                 "plan": {"steps": [{"kind": "answer", "status": "done"}]},
             }
@@ -207,7 +216,8 @@ def test_retrieval_arguments_and_premature_write_are_rejected():
     with pytest.raises(ValueError):
         validate_plan(invalid, state, registry)
     invalid = static_plan(state)
-    invalid.steps[2].depends_on = ["retrieve"]
+    assert not any(step.tool == "create_ticket" for step in invalid.steps)
+    invalid.steps[1].depends_on = []
     with pytest.raises(ValueError, match="evidence"):
         validate_plan(invalid, state, registry)
 
@@ -302,7 +312,6 @@ def test_tool_selection_is_limited_to_classifier_authorization():
     assert [step.tool for step in plan.steps if step.kind == "tool"] == [
         "draft_report",
         "query_metrics",
-        "create_ticket",
     ]
     state["intent"] = "knowledge"
     assert not any(step.kind == "tool" for step in static_plan(state).steps)

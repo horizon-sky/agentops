@@ -107,6 +107,7 @@ class Run(Base):
     prompt_version: Mapped[str] = mapped_column(String(64), default="")
     error_stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
     answer: Mapped[str] = mapped_column(Text, default="")
+    ticket_draft: Mapped[dict] = mapped_column(JSONB, default=dict)
     citations: Mapped[list] = mapped_column(JSONB, default=list)
     retrieval: Mapped[dict] = mapped_column(JSONB, default=dict)
     tool_results: Mapped[list] = mapped_column(JSONB, default=list)

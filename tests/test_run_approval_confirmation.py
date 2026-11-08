@@ -1,5 +1,5 @@
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
 
 from apps.api.src.routers.runs import _validate_approval_text
 from apps.api.src.schemas.api import ResumeIn

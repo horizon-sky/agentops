@@ -82,6 +82,84 @@ async def test_graph_run_emits_plan_and_done_offline() -> None:
     assert "answer" in collector.payload_of("done")
 
 
+async def test_ticket_draft_generation_separates_fields_and_status(monkeypatch) -> None:
+    from src.agent.nodes.answer import TicketDraftOut
+    from src.agent.nodes.classify import IntentOut
+    from src.agent.nodes.review import ReviewOut
+
+    class TicketDraftLLM:
+        async def acomplete(self, messages, tier="cheap", response_model=None):
+            if response_model is IntentOut:
+                return ModelResult(parsed=IntentOut(intent="ticket"))
+            if response_model is ReviewOut:
+                return ModelResult(parsed=ReviewOut(sufficient=True))
+            if response_model is TicketDraftOut:
+                return ModelResult(parsed=TicketDraftOut(
+                    title="订单服务故障跟进",
+                    detail="已知现象：5xx 升高。",
+                    severity="P2",
+                    citations=[],
+                    unknowns=["根因待确认"],
+                ))
+            raise AssertionError(f"unexpected response model: {response_model}")
+
+        async def astream(self, messages, tier="strong"):
+            raise AssertionError("ticket draft must use structured completion")
+            yield ""
+
+    runner = GraphRunner(Settings(_env_file=None))
+    runner.llm = TicketDraftLLM()
+    collector = Collector()
+    await runner.run("ticket-draft-run", "创建 P2 跟进工单，先不要创建", collector)
+
+    done = collector.payload_of("done")
+    assert done["ticket_draft"]["title"] == "订单服务故障跟进"
+    assert done["ticket_draft"]["severity"] == "P2"
+    assert "本次未调用工具" not in done["ticket_draft"]["detail"]
+    assert "本次未调用工具" not in done["answer"].split("### 描述", 1)[1]
+    assert "未创建工单" in done["answer"]
+    assert not any(item["name"] == "create_ticket" for item in done["tools"])
+
+
+@pytest.mark.parametrize("fault", [
+    "missing", "invalid_priority", "wrong_priority", "unknown_citation",
+])
+async def test_invalid_generated_ticket_draft_cannot_be_confirmed(fault) -> None:
+    from src.agent.nodes.answer import TicketDraftOut
+    from src.agent.nodes.classify import IntentOut
+    from src.agent.nodes.review import ReviewOut
+
+    class InvalidDraftLLM:
+        async def acomplete(self, messages, tier="cheap", response_model=None):
+            if response_model is IntentOut:
+                return ModelResult(parsed=IntentOut(intent="ticket"))
+            if response_model is ReviewOut:
+                return ModelResult(parsed=ReviewOut(sufficient=True))
+            assert response_model is TicketDraftOut
+            if fault == "missing":
+                return ModelResult()
+            return ModelResult(parsed=TicketDraftOut(
+                title="故障跟进", detail="根因待确认",
+                severity={"invalid_priority": "urgent", "wrong_priority": "P1"}.get(fault, "P2"),
+                citations=["fabricated-citation"] if fault == "unknown_citation" else [],
+            ))
+
+    runner = GraphRunner(Settings(_env_file=None))
+    runner.llm = InvalidDraftLLM()
+    draft_events = Collector()
+    await runner.run("invalid-draft", "生成 P2 工单草稿，先不要创建", draft_events)
+    draft = draft_events.payload_of("done")
+    assert draft["ticket_draft"] == {}
+    assert "未能通过结构化校验" in draft["answer"]
+    confirmation = Collector()
+    await runner.run("confirm-invalid-draft", "确认创建", confirmation, conversation_history=[{
+        "run_id": "invalid-draft", "status": "completed", "answer": draft["answer"],
+        "ticket_draft": draft["ticket_draft"],
+    }])
+    assert "没有可匹配" in confirmation.payload_of("done")["answer"]
+    assert not any(event.type == "tool_result" for event in confirmation.events)
+
+
 async def test_low_confidence_classification_terminates_sse_with_done() -> None:
     settings = Settings(_env_file=None)
     collector = Collector()
@@ -168,18 +246,24 @@ async def test_graph_runner_includes_prior_session_turn_in_answer_context() -> N
     from src.agent.nodes.review import ReviewOut
 
     class HistoryLLM:
-        answer_messages = None
+        draft_messages = None
 
         async def acomplete(self, messages, tier="cheap", response_model=None):
             if response_model is IntentOut:
                 return ModelResult(parsed=IntentOut(intent="ticket"))
             if response_model is ReviewOut:
                 return ModelResult(parsed=ReviewOut(sufficient=False))
+            from src.agent.nodes.answer import TicketDraftOut
+            if response_model is TicketDraftOut:
+                self.draft_messages = messages
+                return ModelResult(parsed=TicketDraftOut(
+                    title="订单服务跟进", detail="内容", severity="P2"
+                ))
             return ModelResult()
 
         async def astream(self, messages, tier="strong"):
-            self.answer_messages = messages
-            yield "草稿已更新为 P1"
+            raise AssertionError("ticket draft must use structured completion")
+            yield ""
 
     llm = HistoryLLM()
     runner = GraphRunner(Settings(_env_file=None))
@@ -194,8 +278,8 @@ async def test_graph_runner_includes_prior_session_turn_in_answer_context() -> N
         ],
     )
 
-    assert llm.answer_messages is not None
-    answer_prompt = llm.answer_messages[-1].content
+    assert llm.draft_messages is not None
+    answer_prompt = llm.draft_messages[-1].content
     assert "草稿标题：订单服务异常；优先级：P2" in answer_prompt
     assert "hitl_request" not in collector.types
     assert "tool_result" not in collector.types
@@ -248,13 +332,17 @@ async def test_explicit_follow_up_confirmation_creates_previous_ticket_draft(mon
                 "run_id": "draft-run-1",
                 "status": "completed",
                 "query": "将刚才工单优先级改为 P1，先不要创建。",
-                "answer": (
-                    "**标题：** DemoShop 订单服务故障跟进。[9cbaa5b1-d4dd-4738-8e4a-f8e07602285c]\n"
-                    "**优先级：** P1（待确认）\n\n"
-                    "**描述：**\n现象与证据：订单服务 5xx 与延迟升高。\n"
-                    "调查判断：根因仍待确认。\n"
-                    "当前状态：本次未调用工具。\n你可以在下一轮单独回复‘确认创建’。"
-                ),
+                "ticket_draft": {
+                    "title": "DemoShop 订单服务故障跟进。",
+                    "detail": "现象与证据：订单服务 5xx 与延迟升高。\n调查判断：根因仍待确认。",
+                    "severity": "P1",
+                    "run_id": "draft-run-1",
+                    "fingerprint": _ticket_draft_fingerprint(
+                        "DemoShop 订单服务故障跟进。", "P1",
+                        "现象与证据：订单服务 5xx 与延迟升高。\n调查判断：根因仍待确认。",
+                    ),
+                },
+                "answer": "草稿展示状态与业务字段分离。",
                 "tool_results": [],
                 "plan": {"steps": [{"kind": "answer", "status": "done"}]},
             }
@@ -424,6 +512,15 @@ async def test_ticket_draft_request_waits_for_confirmation_before_write(monkeypa
                 )
             if response_model is ReviewOut:
                 return ModelResult(parsed=ReviewOut())
+            from src.agent.nodes.answer import TicketDraftOut
+            if response_model is TicketDraftOut:
+                return ModelResult(parsed=TicketDraftOut(
+                    title="订单故障跟进",
+                    detail="订单服务错误率升高，根因待确认。",
+                    severity="P2",
+                    citations=[],
+                    unknowns=["具体根因"],
+                ))
             return ModelResult()
 
         async def astream(self, messages, tier="strong"):
@@ -440,10 +537,10 @@ async def test_ticket_draft_request_waits_for_confirmation_before_write(monkeypa
         user_id="alice",
     )
 
-    assert await runner.awaiting_approval("draft-ticket-awaiting-confirmation")
-    approval = collector.payload_of("hitl_request")
-    assert approval["tool"] == "create_ticket"
-    assert approval["args"]["severity"] == "P2"
+    assert not await runner.awaiting_approval("draft-ticket-awaiting-confirmation")
+    assert collector.payload_of("done")["ticket_draft"]["severity"] == "P2"
+    assert "hitl_request" not in collector.types
+    assert "tool_result" not in collector.types
     assert calls == []
 
 

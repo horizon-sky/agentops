@@ -31,25 +31,27 @@ def test_risk_classification() -> None:
     ("query", "severity"),
     [("创建P0工单", "P0"), ("帮我建一个p1工单", "P1"), ("创建P10工单", "P2")],
 )
-def test_ticket_priority_in_chinese_requests(query, severity) -> None:
+def test_ticket_first_turn_never_calls_create_tool(query, severity) -> None:
     from src.agent.nodes.tools import _planned_calls
 
-    ticket = next(
-        call
-        for call in _planned_calls(
-            {
-                "intent": "ticket",
-                "query": query,
-                "requested_tools": ["create_ticket"],
-            }
-        )
-        if call["name"] == "create_ticket"
-    )
-    assert ticket["args"] == {"title": query, "detail": query, "severity": severity}
+    calls = _planned_calls({
+        "intent": "ticket", "query": query, "requested_tools": ["create_ticket"]
+    })
+    assert not any(call["name"] == "create_ticket" for call in calls)
 
 
 def test_confirmation_uses_previous_ticket_draft_as_write_payload() -> None:
-    from src.agent.nodes.tools import _planned_calls
+    from src.agent.nodes.tools import _planned_calls, _ticket_draft_fingerprint
+
+    title = "DemoShop 订单服务故障跟进。"
+    detail = "现象与证据：订单服务 5xx 与延迟升高。\n调查判断：根因仍待确认。"
+    draft = {
+        "title": title,
+        "detail": detail,
+        "severity": "P1",
+        "run_id": "draft-run-1",
+        "fingerprint": _ticket_draft_fingerprint(title, "P1", detail),
+    }
 
     calls = _planned_calls(
         {
@@ -61,6 +63,7 @@ def test_confirmation_uses_previous_ticket_draft_as_write_payload() -> None:
                 {
                     "run_id": "draft-run-1",
                     "status": "completed",
+                    "ticket_draft": draft,
                     "query": "将刚才工单优先级改为 P1，但先不要创建，等我确认。",
                     "answer": (
                         "已生成待确认草稿。\n\n"
@@ -87,8 +90,61 @@ def test_confirmation_uses_previous_ticket_draft_as_write_payload() -> None:
     }
 
 
-def test_confirmation_uses_most_recent_unwritten_draft_from_history() -> None:
+def test_confirmation_uses_persisted_structured_draft_not_rendered_answer() -> None:
+    from src.agent.nodes.tools import _ticket_draft_fingerprint, _ticket_draft_from_history
+
+    draft = {
+        "title": "订单服务故障跟进",
+        "detail": "已知现象：5xx 升高。",
+        "severity": "P2",
+        "run_id": "draft-run-1",
+        "fingerprint": _ticket_draft_fingerprint("订单服务故障跟进", "P2", "已知现象：5xx 升高。"),
+    }
+    state = {
+        "conversation_history": [{
+            "run_id": "draft-run-1",
+            "status": "completed",
+            "ticket_draft": draft,
+            "answer": (
+                "### 描述\n已知现象：5xx 升高。\n"
+                "本次未调用工具，未获取实时或样例工具数据。\n"
+                "按你的要求，仅提供草稿，未创建工单，无工单编号。"
+            ),
+        }]
+    }
+
+    assert _ticket_draft_from_history(state) == draft
+
+
+def test_explicit_denial_consumes_previous_structured_draft() -> None:
+    from src.agent.nodes.tools import _ticket_draft_fingerprint, _ticket_draft_from_history
+
+    draft = {
+        "title": "故障跟进", "detail": "根因待确认", "severity": "P2", "run_id": "draft-run",
+        "fingerprint": _ticket_draft_fingerprint("故障跟进", "P2", "根因待确认"),
+    }
+    assert _ticket_draft_from_history({"conversation_history": [
+        {"run_id": "draft-run", "status": "completed", "ticket_draft": draft},
+        {"run_id": "denial-run", "status": "completed",
+         "query": "拒绝创建工单", "answer": "已拒绝"},
+    ]}) is None
+
+
+def test_confirmation_does_not_parse_legacy_answer_as_a_write_draft() -> None:
     from src.agent.nodes.tools import _ticket_draft_from_history
+
+    assert _ticket_draft_from_history({"conversation_history": [{
+        "run_id": "legacy-run",
+        "status": "completed",
+        "answer": (
+            "标题：订单服务故障跟进\n优先级：P2\n描述：\n"
+            "有效描述。\n本次未调用工具，未获取样例数据。"
+        ),
+    }]}) is None
+
+
+def test_confirmation_uses_most_recent_unwritten_draft_from_history() -> None:
+    from src.agent.nodes.tools import _ticket_draft_fingerprint, _ticket_draft_from_history
 
     state = {
         "conversation_history": [
@@ -108,6 +164,11 @@ def test_confirmation_uses_most_recent_unwritten_draft_from_history() -> None:
             {
                 "run_id": "latest-draft",
                 "status": "completed",
+                "ticket_draft": {
+                    "title": "新草稿", "detail": "新内容", "severity": "P1",
+                    "run_id": "latest-draft",
+                    "fingerprint": _ticket_draft_fingerprint("新草稿", "P1", "新内容"),
+                },
                 "answer": "标题：新草稿\n优先级：P1\n描述：\n新内容\n当前状态：仅生成草稿",
                 "tool_results": [],
                 "plan": {"steps": []},
@@ -122,7 +183,6 @@ def test_confirmation_uses_most_recent_unwritten_draft_from_history() -> None:
     assert draft["title"] == "新草稿"
     assert draft["detail"] == "新内容"
     assert draft["severity"] == "P1"
-    assert draft["fingerprint"]
 
 
 def test_confirmation_does_not_fall_back_from_markdown_draft_to_older_draft() -> None:
@@ -155,11 +215,7 @@ def test_confirmation_does_not_fall_back_from_markdown_draft_to_older_draft() ->
 
     draft = _ticket_draft_from_history(state)
 
-    assert draft is not None
-    assert draft["run_id"] == "latest-draft"
-    assert draft["title"] == "新草稿"
-    assert draft["detail"] == "新内容"
-    assert draft["severity"] == "P2"
+    assert draft is None
 
 
 def test_confirmation_parses_heading_sections_from_actual_draft_response() -> None:
@@ -188,12 +244,7 @@ def test_confirmation_parses_heading_sections_from_actual_draft_response() -> No
         }]}
     )
 
-    assert draft is not None
-    assert draft["run_id"] == "draft-run"
-    assert draft["severity"] == "P2"
-    assert draft["title"].startswith("[合成评测记录] DemoShop 订单服务")
-    assert "根因尚待确认" in draft["detail"]
-    assert "处理方案" not in draft["detail"]
+    assert draft is None
 
 
 def test_confirmation_parses_bold_sections_from_latest_online_draft_response() -> None:
@@ -216,12 +267,7 @@ def test_confirmation_parses_bold_sections_from_latest_online_draft_response() -
         {"conversation_history": [{"run_id": "draft-run", "status": "completed", "answer": answer}]}
     )
 
-    assert draft is not None
-    assert draft["title"].startswith("[合成评测][DemoShop]")
-    assert draft["severity"] == "P2"
-    assert "5xx 比例" in draft["detail"]
-    assert "工具状态" not in draft["detail"]
-    assert "请确认" not in draft["detail"]
+    assert draft is None
 
 
 def test_confirmation_parses_bold_priority_section_with_value_on_next_line() -> None:
@@ -243,11 +289,7 @@ def test_confirmation_parses_bold_priority_section_with_value_on_next_line() -> 
         {"conversation_history": [{"run_id": "draft-run", "status": "completed", "answer": answer}]}
     )
 
-    assert draft is not None
-    assert draft["title"].startswith("【合成评测记录】DemoShop")
-    assert draft["severity"] == "P2"
-    assert "5xx 比例升高" in draft["detail"]
-    assert "当前仅展示" not in draft["detail"]
+    assert draft is None
 
 
 def test_confirmation_draft_detail_excludes_post_draft_status_and_follow_up_text() -> None:
@@ -269,12 +311,7 @@ def test_confirmation_draft_detail_excludes_post_draft_status_and_follow_up_text
         {"conversation_history": [{"run_id": "draft-run", "status": "completed", "answer": answer}]}
     )
 
-    assert draft is not None
-    assert "5xx 从 0.4% 升至 6.8%" in draft["detail"]
-    assert "[9cbaa5b1-d4dd-4738-8e4a-f8e07602285c]" in draft["detail"]
-    assert "根因尚待确认" in draft["detail"]
-    assert "可补充告警时间" not in draft["detail"]
-    assert "当前未创建工单" not in draft["detail"]
+    assert draft is None
 
 
 def test_ticket_draft_flow_does_not_select_report_tool_for_word_draft() -> None:
@@ -362,9 +399,7 @@ def test_latest_draft_fields_never_fall_back_to_older_draft(answer, expected_tit
     if expected_title is None:
         assert draft is None
     else:
-        assert draft["title"] == expected_title
-        assert draft["run_id"] == "latest"
-        assert draft["detail"] == "新内容"
+        assert draft is None
 
 
 @pytest.mark.parametrize("write_evidence", [
@@ -376,8 +411,8 @@ def test_successful_write_blocks_reconfirmation_of_older_draft(write_evidence) -
     from src.agent.nodes.tools import _ticket_draft_from_history
 
     assert _ticket_draft_from_history({"conversation_history": [
-        {"run_id": "old", "status": "completed", "answer":
-         "标题：旧草稿\n优先级：P1\n描述：\n旧内容\n当前状态：等待确认"},
+            {"run_id": "old", "status": "completed", "answer":
+             "标题：旧草稿\n优先级：P1\n描述：\n旧内容\n当前状态：等待确认"},
         {"run_id": "written", "status": "completed", "answer": "已创建 OPS-1",
          **write_evidence},
     ]}) is None
