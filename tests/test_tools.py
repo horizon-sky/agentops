@@ -224,6 +224,32 @@ def test_confirmation_parses_bold_sections_from_latest_online_draft_response() -
     assert "请确认" not in draft["detail"]
 
 
+def test_confirmation_parses_bold_priority_section_with_value_on_next_line() -> None:
+    from src.agent.nodes.tools import _ticket_draft_from_history
+
+    answer = (
+        "处理方案：先提交以下待确认工单草稿；暂不创建工单。\n\n"
+        "**标题**\n\n"
+        "【合成评测记录】DemoShop 订单服务异常，根因待确认\n\n"
+        "**描述**\n\n"
+        "这是一次合成评测记录，当前根因尚待确认。\n\n"
+        "已知现象：order-service 5xx 比例升高。[9cbaa5b1-d4dd-4738-8e4a-f8e07602285c]\n\n"
+        "**优先级**\n\n"
+        "**P2**\n\n"
+        "当前仅展示草稿，尚未创建工单。"
+    )
+
+    draft = _ticket_draft_from_history(
+        {"conversation_history": [{"run_id": "draft-run", "status": "completed", "answer": answer}]}
+    )
+
+    assert draft is not None
+    assert draft["title"].startswith("【合成评测记录】DemoShop")
+    assert draft["severity"] == "P2"
+    assert "5xx 比例升高" in draft["detail"]
+    assert "当前仅展示" not in draft["detail"]
+
+
 def test_ticket_draft_flow_does_not_select_report_tool_for_word_draft() -> None:
     from src.agent.nodes.tools import _planned_calls
 

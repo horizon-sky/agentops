@@ -139,14 +139,20 @@ def _ticket_draft_from_history(state: AgentState) -> dict[str, Any] | None:
             bold_fields = list(_DRAFT_BOLD_SECTION.finditer(answer))
             priority_inline = _DRAFT_BOLD_PRIORITY.search(answer)
             labels = [field.group(1) for field in bold_fields]
-            if (
-                labels != ["标题", "描述"]
-                or priority_inline is None
-            ):
+            if labels == ["标题", "描述", "优先级"]:
+                title_value = _first_nonempty_line(
+                    answer[bold_fields[0].end():bold_fields[1].start()]
+                )
+                detail = answer[bold_fields[1].end():bold_fields[2].start()]
+                priority_value = _first_nonempty_line(answer[bold_fields[2].end():])
+            elif labels == ["标题", "描述"] and priority_inline is not None:
+                title_value = _first_nonempty_line(
+                    answer[bold_fields[0].end():bold_fields[1].start()]
+                )
+                priority_value = priority_inline.group(1)
+                detail = answer[bold_fields[1].end():priority_inline.start()]
+            else:
                 return None
-            title_value = _first_nonempty_line(answer[bold_fields[0].end():bold_fields[1].start()])
-            priority_value = priority_inline.group(1)
-            detail = answer[bold_fields[1].end():priority_inline.start()]
         else:
             return None
 
