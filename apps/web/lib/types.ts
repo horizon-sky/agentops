@@ -105,8 +105,8 @@ export interface TraceNode {
   name: string;
   status: string;
   ms: number;
-  tokens: number;
-  cost: number;
+  tokens: number | null;
+  cost: number | null;
   inputs?: Record<string, unknown>;
   outputs?: Record<string, unknown>;
   children?: TraceNode[];

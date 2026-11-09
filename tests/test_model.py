@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage
 from openai import APIStatusError
 from pydantic import BaseModel
 
+from src.agent.context import bind
 from src.agent.model import OpenAILike
 from src.config import Settings
 
@@ -103,3 +104,135 @@ async def test_structured_fallback_does_not_hide_other_failures(failure) -> None
     with pytest.raises(ValidationError if failure == "invalid_json" else APIStatusError):
         await provider.acomplete([HumanMessage(content="test")], response_model=ParsedOut)
     assert len(calls) == (1 if failure == "invalid_json" else 0)
+
+
+async def test_stream_requests_usage_and_reports_final_usage() -> None:
+    provider = OpenAILike(Settings(_env_file=None, llm_api_key="test"))
+    seen = {}
+    recorded = []
+
+    async def create(**kwargs):
+        seen.update(kwargs)
+
+        async def chunks():
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(delta=SimpleNamespace(content="hello"))],
+                usage=None,
+            )
+            yield SimpleNamespace(choices=[], usage=SimpleNamespace(
+                prompt_tokens=12, completion_tokens=3, total_tokens=15
+            ))
+
+        return chunks()
+
+    async def callback(call):
+        recorded.append(call)
+
+    provider._client = SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=create)
+    ))
+    bind(model_usage_callback=callback)
+    try:
+        chunks = [chunk async for chunk in provider.astream([HumanMessage(content="test")])]
+    finally:
+        bind(model_usage_callback=None)
+
+    assert chunks == ["hello"]
+    assert seen["stream"] is True
+    assert seen["stream_options"] == {"include_usage": True}
+    assert recorded[0]["usage"] == {
+        "prompt_tokens": 12, "completion_tokens": 3, "total_tokens": 15
+    }
+    assert recorded[0]["usage_status"] == "available"
+
+
+async def test_stream_without_usage_reports_missing_usage() -> None:
+    provider = OpenAILike(Settings(_env_file=None, llm_api_key="test"))
+    recorded = []
+
+    async def create(**_kwargs):
+        async def chunks():
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(delta=SimpleNamespace(content="hello"))],
+                usage=None,
+            )
+
+        return chunks()
+
+    async def callback(call):
+        recorded.append(call)
+
+    provider._client = SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=create)
+    ))
+    bind(model_usage_callback=callback)
+    try:
+        chunks = [chunk async for chunk in provider.astream([HumanMessage(content="test")])]
+        assert chunks == ["hello"]
+    finally:
+        bind(model_usage_callback=None)
+
+    assert recorded[0]["usage"] is None
+    assert recorded[0]["usage_status"] == "unavailable"
+
+
+async def test_interrupted_stream_records_missing_usage_status() -> None:
+    provider = OpenAILike(Settings(_env_file=None, llm_api_key="test"))
+    recorded = []
+
+    async def create(**_kwargs):
+        async def chunks():
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(delta=SimpleNamespace(content="hello"))],
+                usage=None,
+            )
+            yield SimpleNamespace(choices=[], usage=SimpleNamespace(
+                prompt_tokens=12, completion_tokens=3, total_tokens=15
+            ))
+
+        return chunks()
+
+    async def callback(call):
+        recorded.append(call)
+
+    provider._client = SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=create)
+    ))
+    bind(model_usage_callback=callback)
+    try:
+        stream = provider.astream([HumanMessage(content="test")])
+        assert await anext(stream) == "hello"
+        await stream.aclose()
+    finally:
+        bind(model_usage_callback=None)
+
+    assert recorded[0]["usage"] is None
+    assert recorded[0]["usage_status"] == "unavailable"
+    assert recorded[0]["call_status"] == "interrupted"
+
+
+async def test_non_streaming_completion_reports_usage() -> None:
+    provider = OpenAILike(Settings(_env_file=None, llm_api_key="test"))
+    recorded = []
+
+    async def create(**_kwargs):
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+            usage=SimpleNamespace(prompt_tokens=5, completion_tokens=2, total_tokens=7),
+        )
+
+    async def callback(call):
+        recorded.append(call)
+
+    provider._client = SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=create)
+    ))
+    bind(model_usage_callback=callback)
+    try:
+        result = await provider.acomplete([HumanMessage(content="test")])
+    finally:
+        bind(model_usage_callback=None)
+
+    assert result.usage["total_tokens"] == 7
+    assert recorded[0]["usage_status"] == "available"
+    assert recorded[0]["mode"] == "non_streaming"

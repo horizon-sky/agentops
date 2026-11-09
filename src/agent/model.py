@@ -141,6 +141,29 @@ class OpenAILike:
         tier: str = "strong",
         response_model: StructuredModel | None = None,
     ) -> ModelResult:
+        from time import perf_counter
+
+        started = perf_counter()
+        try:
+            result = await self._acomplete(messages, tier, response_model)
+        except Exception:
+            await self._record_call(
+                tier=tier, mode="non_streaming", usage=None,
+                ms=int((perf_counter() - started) * 1000), call_status="error",
+            )
+            raise
+        await self._record_call(
+            tier=tier, mode="non_streaming", usage=result.usage,
+            ms=int((perf_counter() - started) * 1000),
+        )
+        return result
+
+    async def _acomplete(
+        self,
+        messages: Sequence[Any],
+        tier: str = "strong",
+        response_model: StructuredModel | None = None,
+    ) -> ModelResult:
         payload: dict[str, Any] = {
             "model": self._model(tier),
             "messages": self._messages(messages),
@@ -193,25 +216,103 @@ class OpenAILike:
         messages: Sequence[Any],
         tier: str = "strong",
     ) -> AsyncIterator[str]:
-        stream = await self._client.chat.completions.create(
-            model=self._model(tier),
-            messages=self._messages(messages),
-            stream=True,
+        from time import perf_counter
+
+        started = perf_counter()
+        usage = None
+        status = "interrupted"
+        try:
+            stream = await self._client.chat.completions.create(
+                model=self._model(tier),
+                messages=self._messages(messages),
+                stream=True,
+                stream_options={"include_usage": True},
+            )
+            async for chunk in stream:
+                chunk_usage = _usage(chunk)
+                if chunk_usage:
+                    usage = chunk_usage
+                delta = chunk.choices[0].delta.content if chunk.choices else None
+                if delta:
+                    yield delta
+            status = "ok"
+        except GeneratorExit:
+            status = "interrupted"
+            raise
+        except Exception:
+            status = "error"
+            raise
+        finally:
+            await self._record_call(
+                tier=tier, mode="streaming", usage=usage,
+                ms=int((perf_counter() - started) * 1000),
+                call_status=status,
+            )
+
+    async def _record_call(
+        self,
+        *,
+        tier: str,
+        mode: str,
+        usage: dict[str, int] | None,
+        ms: int,
+        call_status: str = "ok",
+    ) -> None:
+        from src.agent.context import get as ctx_get
+
+        run_id = ctx_get("run_id")
+        settings = ctx_get("settings")
+        required_usage = {"prompt_tokens", "completion_tokens", "total_tokens"}
+        usage_status = (
+            "unavailable" if not usage else
+            "available" if required_usage.issubset(usage) else
+            "partial"
         )
-        async for chunk in stream:
-            delta = chunk.choices[0].delta.content if chunk.choices else None
-            if delta:
-                yield delta
+        record = {
+            "provider": "openai_compatible",
+            "model": self._model(tier),
+            "tier": tier,
+            "mode": mode,
+            "usage": usage or None,
+            "usage_status": usage_status,
+            "call_status": call_status,
+            "ms": ms,
+        }
+        callback = ctx_get("model_usage_callback")
+        if callback is not None:
+            try:
+                await callback(record)
+            except Exception:  # noqa: BLE001 - telemetry cannot fail the model call
+                logger.exception("model usage callback failed")
+        if run_id and settings is not None:
+            from src.agent.tracing import TraceRecorder
+
+            total_tokens = (usage or {}).get("total_tokens")
+            if total_tokens is None and usage:
+                prompt = usage.get("prompt_tokens")
+                completion = usage.get("completion_tokens")
+                if prompt is not None and completion is not None:
+                    total_tokens = prompt + completion
+            await TraceRecorder(settings, run_id).record(
+                run_id=run_id, stage="model", name="chat_completion",
+                ms=ms, tokens=total_tokens, cost=None, status=call_status,
+                outputs={key: value for key, value in record.items() if key != "ms"},
+            )
 
 
 def _usage(completion: Any) -> dict[str, Any]:
     usage = getattr(completion, "usage", None)
     if usage is None:
         return {}
-    return {
-        "prompt_tokens": getattr(usage, "prompt_tokens", 0),
-        "completion_tokens": getattr(usage, "completion_tokens", 0),
-    }
+    values = {}
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        value = getattr(usage, key, None)
+        if value is not None:
+            values[key] = int(value)
+    if ("total_tokens" not in values
+            and "prompt_tokens" in values and "completion_tokens" in values):
+        values["total_tokens"] = values["prompt_tokens"] + values["completion_tokens"]
+    return values
 
 
 class OpenAIEmbedder:

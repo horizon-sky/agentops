@@ -39,7 +39,7 @@ async def get_trace(
             status=row.status,
             ms=row.ms,
             tokens=row.tokens,
-            cost=float(row.cost or 0),
+            cost=float(row.cost) if row.cost is not None else None,
             inputs=row.inputs or {},
             outputs=row.outputs or {},
         )

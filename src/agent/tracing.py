@@ -31,8 +31,8 @@ class TraceRecorder:
         inputs: dict[str, Any] | None = None,
         outputs: dict[str, Any] | None = None,
         ms: int = 0,
-        tokens: int = 0,
-        cost: float = 0.0,
+        tokens: int | None = None,
+        cost: float | None = None,
         status: str = "ok",
         parent_id: uuid.UUID | None = None,
     ) -> None:

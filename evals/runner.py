@@ -79,6 +79,10 @@ class Collector:
         self.approval_count = 0
         self.retry_count = 0
         self.events: list[str] = []
+        self.model_calls: list[dict[str, object]] = []
+
+    async def add_model_usage(self, call: dict[str, object]) -> None:
+        self.model_calls.append(call)
 
     async def __call__(self, event: AgentEvent) -> None:
         payload = event.payload or {}
@@ -142,6 +146,27 @@ class Collector:
             if isinstance(citations, list):
                 self.citations = max(self.citations, len(citations))
 
+    def token_usage_summary(self) -> tuple[dict[str, object] | None, str]:
+        if not self.model_calls:
+            return None, "not_observed"
+        observed = [call.get("usage") for call in self.model_calls]
+        available = [usage for usage in observed if isinstance(usage, dict)]
+        if not available:
+            return None, "unavailable"
+        totals: dict[str, object] = {
+            key: sum(int(usage[key]) for usage in available if key in usage)
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+            if len(available) == len(self.model_calls)
+            and all(key in usage for usage in available)
+        }
+        required = {"prompt_tokens", "completion_tokens", "total_tokens"}
+        complete = (
+            len(available) == len(self.model_calls)
+            and all(required.issubset(usage) for usage in available)
+        )
+        status = "complete" if complete else "partial"
+        return {"calls": self.model_calls, "totals": totals}, status
+
 
 async def _create_eval_run(run_id: str, query: str, settings: Settings, user_id: str = "") -> None:
     factory = get_session_factory(settings)
@@ -191,6 +216,9 @@ async def run_case(
     started = perf_counter()
 
     await _create_eval_run(run_id, str(case["query"]), settings, user_id)
+    from src.agent.context import bind
+
+    bind(model_usage_callback=collector.add_model_usage)
     try:
         await runner.run(
             run_id, str(case["query"]), collector, user_id=user_id
@@ -199,6 +227,8 @@ async def run_case(
     except Exception:
         await _finish_eval_run(run_id, settings, "failed")
         raise
+    finally:
+        bind(model_usage_callback=None)
     await _finish_eval_run(
         run_id, settings, "awaiting_approval" if approval_pending else "completed"
     )
@@ -221,6 +251,7 @@ async def run_case(
         },
         db_available=settings.has_database,
     )
+    token_usage, token_usage_status = collector.token_usage_summary()
     return {
         "id": case["id"],
         "query": case["query"],
@@ -244,9 +275,9 @@ async def run_case(
         "retrieval": collector.retrieval,
         "citation_refs": collector.citation_refs,
         "tool_events": collector.tool_events,
-        "token_usage": None,
-        "token_usage_status": "stream_usage_not_exposed_by_provider_interface",
-        "tokens": None,
+        "token_usage": token_usage,
+        "token_usage_status": token_usage_status,
+        "tokens": (token_usage or {}).get("totals", {}).get("total_tokens"),
         "cost_usd": None,
         **verdict,
     }

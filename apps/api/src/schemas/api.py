@@ -99,8 +99,8 @@ class TraceNode(BaseModel):
     name: str
     status: str
     ms: int = 0
-    tokens: int = 0
-    cost: float = 0.0
+    tokens: int | None = None
+    cost: float | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     outputs: dict[str, Any] = Field(default_factory=dict)
     children: list[TraceNode] = Field(default_factory=list)

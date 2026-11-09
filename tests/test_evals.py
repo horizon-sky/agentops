@@ -90,6 +90,29 @@ async def test_eval_collector_ignores_empty_text_and_bounds_tool_output():
     assert collector.tool_events[0]["output_truncated"] is True
 
 
+async def test_eval_collector_summarizes_model_usage_and_marks_partial_calls():
+    from evals.runner import Collector
+
+    collector = Collector(datetime.now(UTC))
+    await collector.add_model_usage({
+        "model": "gpt-6-sol", "mode": "streaming",
+        "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+        "usage_status": "available",
+    })
+    await collector.add_model_usage({
+        "model": "gpt-6-sol", "mode": "non_streaming",
+        "usage": None, "usage_status": "unavailable",
+    })
+
+    summary, status = collector.token_usage_summary()
+
+    assert status == "partial"
+    assert summary == {
+        "calls": collector.model_calls,
+        "totals": {},
+    }
+
+
 def test_agentops_seed_materials_load_as_four_independent_documents():
     from scripts.evaluate_isolated import load_agentops_materials
 
@@ -160,6 +183,26 @@ def test_aggregate_does_not_present_unmeasured_tokens_and_cost_as_zero():
     assert metrics["cost_per_task"] is None
     assert metrics["recall_at_5"] is None
     assert metrics["task_success_rate"] == 0.0
+
+
+def test_aggregate_reports_tokens_only_when_every_case_usage_is_complete():
+    from evals.metrics import aggregate
+
+    complete = aggregate([
+        {"passed": True, "latency_ms": 100, "tool_accuracy": 1.0,
+         "tokens": 12, "token_usage_status": "complete"},
+        {"passed": True, "latency_ms": 200, "tool_accuracy": 1.0,
+         "tokens": 18, "token_usage_status": "complete"},
+    ])
+    partial = aggregate([
+        {"passed": True, "latency_ms": 100, "tool_accuracy": 1.0,
+         "tokens": 12, "token_usage_status": "complete"},
+        {"passed": True, "latency_ms": 200, "tool_accuracy": 1.0,
+         "tokens": None, "token_usage_status": "unavailable"},
+    ])
+
+    assert complete["avg_tokens"] == 15.0
+    assert partial["avg_tokens"] is None
 
 
 @pytest.mark.parametrize("settings_overrides,retrieval", [

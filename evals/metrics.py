@@ -26,6 +26,17 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
             failure_stages[stage] = failure_stages.get(stage, 0) + 1
 
     skipped = sum(1 for item in results if item.get("citation_skipped"))
+    token_values = [
+        float(item["tokens"])
+        for item in results
+        if item.get("token_usage_status") == "complete"
+        and isinstance(item.get("tokens"), (int, float))
+    ]
+    avg_tokens = (
+        round(sum(token_values) / len(token_values), 1)
+        if len(token_values) == total and total > 0
+        else None
+    )
     return {
         "cases": total,
         "citation_skipped": skipped,
@@ -36,7 +47,7 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "recall_at_5": None,  # 需要标注相关 chunk 后才有意义，未标注时如实置空
         "p50_latency_ms": round(percentile(latencies, 0.5), 0),
         "p95_latency_ms": round(percentile(latencies, 0.95), 0),
-        "avg_tokens": None,  # 当前未接入 token usage 计量
+        "avg_tokens": avg_tokens,  # 不完整批次不计算均值，避免低估
         "cost_per_task": None,  # 当前未接入实际费用计量
         "failure_stages": failure_stages,
     }

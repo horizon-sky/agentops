@@ -19,6 +19,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -192,8 +193,8 @@ class Trace(Base):
     name: Mapped[str] = mapped_column(String(120), default="")
     status: Mapped[str] = mapped_column(String(32), default="ok")
     ms: Mapped[int] = mapped_column(Integer, default=0)
-    tokens: Mapped[int] = mapped_column(Integer, default=0)
-    cost: Mapped[float] = mapped_column(Integer, default=0)
+    tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost: Mapped[float | None] = mapped_column(Numeric(12, 8), nullable=True)
     inputs: Mapped[dict] = mapped_column(JSONB, default=dict)
     outputs: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
