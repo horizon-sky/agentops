@@ -131,11 +131,11 @@ async def test_stream_requests_usage_and_reports_final_usage() -> None:
     provider._client = SimpleNamespace(chat=SimpleNamespace(
         completions=SimpleNamespace(create=create)
     ))
-    bind(model_usage_callback=callback)
+    bind(model_usage_callback=callback, agent_node="answer")
     try:
         chunks = [chunk async for chunk in provider.astream([HumanMessage(content="test")])]
     finally:
-        bind(model_usage_callback=None)
+        bind(model_usage_callback=None, agent_node=None)
 
     assert chunks == ["hello"]
     assert seen["stream"] is True
@@ -144,6 +144,7 @@ async def test_stream_requests_usage_and_reports_final_usage() -> None:
         "prompt_tokens": 12, "completion_tokens": 3, "total_tokens": 15
     }
     assert recorded[0]["usage_status"] == "available"
+    assert recorded[0]["agent_node"] == "answer"
 
 
 async def test_stream_without_usage_reports_missing_usage() -> None:

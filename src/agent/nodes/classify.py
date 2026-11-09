@@ -8,6 +8,7 @@ from typing import Any, Literal
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from src.agent.context import bind
 from src.agent.context import get as ctx_get
 from src.agent.emit import event_of, get_emit
 from src.agent.model import LLMProvider
@@ -64,6 +65,7 @@ def rule_intent(query: str) -> str:
 
 
 async def classify(state: AgentState, config: Any | None = None) -> dict[str, Any]:
+    bind(agent_node="classify")
     settings = ctx_get("settings")
     llm: LLMProvider | None = ctx_get("llm")
     emit = get_emit(config)

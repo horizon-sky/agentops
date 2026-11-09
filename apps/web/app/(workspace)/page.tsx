@@ -241,7 +241,7 @@ export default function Workbench() {
           {toolResults.length ? <section className="inspector-tools"><h3>工具结果</h3>{toolResults.map((item, index) => <ToolCard key={item.name + "-" + index} item={item} index={index} />)}</section> : null}
           <DocumentIngest />
           <details className="data-boundary"><summary>当前数据范围</summary><p>知识库来自你入库的文档；来源链接用于溯源，不会自动抓取网页。代码搜索仅覆盖本项目源码，指标查询使用演示样例，尚未接入业务监控。工单经确认后保存到本工作台。</p></details>
-          {!sourceRecord ? <CostBar steps={run.steps} totalMs={run.totalMs} /> : null}
+          {!sourceRecord ? <CostBar steps={run.steps} totalMs={run.totalMs} ttftMs={run.ttftMs} /> : null}
         </div>
       </aside>
     </div>

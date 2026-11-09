@@ -271,6 +271,7 @@ class OpenAILike:
         record = {
             "provider": "openai_compatible",
             "model": self._model(tier),
+            "agent_node": ctx_get("agent_node"),
             "tier": tier,
             "mode": mode,
             "usage": usage or None,

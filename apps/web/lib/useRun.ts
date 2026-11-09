@@ -69,6 +69,9 @@ export function useRun() {
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
   const seenEvents = useRef(new Set<string>());
+  const requestStartedAt = useRef<number | null>(null);
+  const firstAnswerAt = useRef<number | null>(null);
+  const [ttftMs, setTtftMs] = useState<number | null>(null);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
@@ -134,7 +137,14 @@ export function useRun() {
           }
           break;
         case "token":
-          setAnswer((prev) => prev + String(payload.delta ?? ""));
+          {
+            const delta = String(payload.delta ?? "");
+            if (delta.trim() && firstAnswerAt.current === null && requestStartedAt.current !== null) {
+              firstAnswerAt.current = performance.now();
+              setTtftMs(Math.round(firstAnswerAt.current - requestStartedAt.current));
+            }
+            setAnswer((prev) => prev + delta);
+          }
           setSteps((prev) => prev.map((step) => step.stage === "tools" && step.detail === "等待工具结果" ? { ...step, status: "done", detail: "未调用工具" } : step));
           patchStep("generate", { status: "running", detail: "流式生成中" });
           break;
@@ -171,6 +181,9 @@ export function useRun() {
       const controller = new AbortController();
       controllerRef.current = controller;
       seenEvents.current.clear();
+      requestStartedAt.current = performance.now();
+      firstAnswerAt.current = null;
+      setTtftMs(null);
 
       setRunId(null);
       setQuery(query);
@@ -205,6 +218,9 @@ export function useRun() {
   const restore = useCallback((snapshot: RunSnapshot | null) => {
     controllerRef.current?.abort();
     seenEvents.current.clear();
+    requestStartedAt.current = null;
+    firstAnswerAt.current = null;
+    setTtftMs(null);
     setQuery(snapshot?.query ?? "");
     setPlan(snapshot?.plan?.steps ?? []);
     if (!snapshot) {
@@ -321,6 +337,7 @@ export function useRun() {
     status,
     error,
     totalMs,
+    ttftMs,
     start,
     restore,
     stop,

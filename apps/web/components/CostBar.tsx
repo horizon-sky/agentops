@@ -13,9 +13,11 @@ const STAGE_COLOR: Record<string, string> = {
 export default function CostBar({
   steps,
   totalMs,
+  ttftMs,
 }: {
   steps: TimelineStep[];
   totalMs: number;
+  ttftMs: number | null;
 }) {
   const max = Math.max(1, ...steps.map((step) => step.ms));
 
@@ -48,7 +50,7 @@ export default function CostBar({
       </div>
 
       <div className="mt-3 border-t border-white/10 pt-3 text-[11px] text-muted">
-        端到端 {totalMs} ms · Token 与成本统计在接入 Trace 后展示
+        阶段耗时合计 {totalMs} ms · 浏览器首字 {ttftMs === null ? "未测量" : `${ttftMs} ms`} · Token 与成本见 Trace
       </div>
     </div>
   );

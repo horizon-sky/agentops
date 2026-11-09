@@ -7,6 +7,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from src.agent.context import bind
 from src.agent.context import get as ctx_get
 from src.agent.emit import event_of, get_emit
 from src.agent.planning import ExecutionPlan, static_plan, validate_plan
@@ -16,6 +17,7 @@ from src.tools.registry import get_registry
 
 
 async def plan(state: AgentState, config: Any | None = None) -> dict[str, Any]:
+    bind(agent_node="plan")
     emit = get_emit(config)
     timer = Timer()
     registry = get_registry(ctx_get("settings"))

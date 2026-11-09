@@ -9,6 +9,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from src.agent.context import bind
 from src.agent.context import get as ctx_get
 from src.agent.emit import event_of, get_emit
 from src.agent.model import LLMProvider
@@ -128,6 +129,7 @@ def _evidence_notice(review: dict[str, Any]) -> str:
 
 
 async def answer(state: AgentState, config: Any | None = None) -> dict[str, Any]:
+    bind(agent_node="answer")
     settings = ctx_get("settings")
     llm: LLMProvider | None = ctx_get("llm")
     emit = get_emit(config)
