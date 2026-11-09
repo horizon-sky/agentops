@@ -118,6 +118,15 @@ def _build_tool_summary(state: AgentState) -> str:
     return "\n".join(parts) or "（未调用工具）"
 
 
+def _evidence_notice(review: dict[str, Any]) -> str:
+    if review.get("sufficient") is not False or review.get("next_action") == "clarify":
+        return ""
+    gap = "；".join(
+        review.get("missing_evidence") or [review.get("reason") or "缺少可验证证据"]
+    )
+    return f"证据不足：{gap}。\n\n"
+
+
 async def answer(state: AgentState, config: Any | None = None) -> dict[str, Any]:
     settings = ctx_get("settings")
     llm: LLMProvider | None = ctx_get("llm")
@@ -168,14 +177,16 @@ async def answer(state: AgentState, config: Any | None = None) -> dict[str, Any]
         )
         await emit(event_of(type="token", run_id=run_id, stage="generate", payload={"delta": text}))
     elif state.get("stop_reason") == "execution_budget":
-        text = (
+        text = _evidence_notice(review) + (
             f"已保留 {len(state.get('citations', []))} 条引用及 "
             f"{len(state.get('tool_results', []))} 项工具结果。"
             "未完成操作已停止；已提交的业务操作不会撤销。"
         )
         await emit(event_of(type="token", run_id=run_id, stage="generate", payload={"delta": text}))
     elif llm is None:
-        text = f"[无模型] 已收集 {len(state.get('citations', []))} 条参考资料。"
+        text = _evidence_notice(review) + (
+            f"[无模型] 已收集 {len(state.get('citations', []))} 条参考资料。"
+        )
         await emit(event_of(type="token", run_id=run_id, stage="generate", payload={"delta": text}))
     elif state.get("intent") == "ticket" and not state.get("ticket_confirmation"):
         try:
@@ -200,7 +211,12 @@ async def answer(state: AgentState, config: Any | None = None) -> dict[str, Any]
             context=_build_context(state),
             tool_results=_build_tool_summary(state),
         ) + ("\n证据审查：" + str(review) + "。证据不足时明确说明限制，不得宣称已经确认。")
-        deltas: list[str] = []
+        notice = _evidence_notice(review)
+        deltas: list[str] = [notice] if notice else []
+        if notice:
+            await emit(
+                event_of(type="token", run_id=run_id, stage="generate", payload={"delta": notice})
+            )
         async for delta in llm.astream(
             [SystemMessage(content=SYSTEM_ANSWER), HumanMessage(content=prompt)],
             tier="strong",
@@ -210,12 +226,6 @@ async def answer(state: AgentState, config: Any | None = None) -> dict[str, Any]
                 event_of(type="token", run_id=run_id, stage="generate", payload={"delta": delta})
             )
         text = "".join(deltas)
-    if review.get("sufficient") is False and review.get("next_action") != "clarify":
-        gap = "；".join(
-            review.get("missing_evidence") or [review.get("reason") or "缺少可验证证据"]
-        )
-        text = f"证据不足：{gap}。\n\n{text}"
-
     await TraceRecorder(settings, run_id).record(
         run_id=run_id,
         stage="generate",

@@ -56,7 +56,14 @@ async def review(state: AgentState, config: Any | None = None) -> dict[str, Any]
     fingerprint = hashlib.sha256(json.dumps(stable, sort_keys=True).encode()).hexdigest()
     fingerprints = state.get("fingerprints", [])
     result = ReviewOut()
-    if llm and state.get("intent") != "injection":
+    operation_receipt = (
+        state.get("ticket_confirmation") or state.get("ticket_confirmation_error")
+        or state.get("write_denied") or state.get("intent") == "injection"
+    )
+    if operation_receipt:
+        # 此时只需报告程序校验及执行状态，不用知识证据判定审批是否发生。
+        result = ReviewOut(reason="本轮返回操作状态，不评估故障根因的证据充分性")
+    elif llm:
         try:
             response = await llm.acomplete(
                 [
@@ -88,7 +95,7 @@ async def review(state: AgentState, config: Any | None = None) -> dict[str, Any]
             result = ReviewOut(sufficient=False, reason="审查服务不可用")
     else:
         result = ReviewOut(sufficient=False, reason="审查模型不可用，无法确认充分性")
-    if state.get("intent") == "knowledge" and not state.get("citations"):
+    if not operation_receipt and state.get("intent") == "knowledge" and not state.get("citations"):
         result.sufficient = False
         result.reason = result.reason or "知识库未提供可引用证据"
     retry = state.get("retry", 0)

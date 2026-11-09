@@ -286,8 +286,6 @@ async def test_graph_runner_includes_prior_session_turn_in_answer_context() -> N
 
 
 async def test_explicit_follow_up_confirmation_creates_previous_ticket_draft(monkeypatch) -> None:
-    from src.agent.model import ModelResult
-    from src.agent.nodes.classify import IntentOut
     from src.agent.nodes.tools import _ticket_draft_fingerprint
     from src.agent.state import ToolResult
     from src.tools.registry import ToolRegistry
@@ -306,9 +304,7 @@ async def test_explicit_follow_up_confirmation_creates_previous_ticket_draft(mon
 
     class ConfirmationLLM:
         async def acomplete(self, messages, tier="cheap", response_model=None):
-            if response_model is IntentOut:
-                raise AssertionError("explicit confirmation must use deterministic routing")
-            return ModelResult()
+            raise AssertionError("explicit confirmation must use deterministic routing and receipt")
 
         async def astream(self, messages, tier="strong"):
             yield "已创建 OPS-1"
@@ -378,6 +374,11 @@ async def test_explicit_follow_up_confirmation_creates_previous_ticket_draft(mon
     assert "idempotency_key" not in approval["args"]
     assert approval["source"] == "explicit_follow_up_message"
     assert not any(event.type == "hitl_request" for event in collector.events)
+    done = collector.payload_of("done")
+    assert done["answer"] == "工单已创建成功，工单编号：OPS-1。"
+    assert done["answer"] == "".join(
+        event.payload["delta"] for event in collector.events if event.type == "token"
+    )
 
     repeated = Collector()
     await runner.run(
