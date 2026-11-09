@@ -119,6 +119,25 @@ async def _persist_run_result(run_id: str, settings: Settings, event: AgentEvent
                 run.tool_results = payload["tools"]
             if "ticket_draft" in payload:
                 run.ticket_draft = payload["ticket_draft"] or {}
+            if (
+                event.type == "done"
+                and (payload.get("ticket_decision") or {}).get("status") == "denied"
+            ):
+                decision = payload["ticket_decision"]
+                history = list(run.approval_history or [])
+                if not any(
+                    item.get("event") == "denied" and item.get("run_id") == run_id
+                    for item in history
+                ):
+                    history.append({
+                        "event": "denied",
+                        "run_id": str(run_id),
+                        "at": event.ts.isoformat(),
+                        "tool": decision.get("tool", "create_ticket"),
+                        "draft_run_id": decision.get("draft_run_id"),
+                        "draft_fingerprint": decision.get("draft_fingerprint"),
+                    })
+                    run.approval_history = history
             if event.type == "hitl_request":
                 run.approval = payload
                 history = list(run.approval_history or [])

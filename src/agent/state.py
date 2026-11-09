@@ -53,6 +53,7 @@ class AgentState(TypedDict, total=False):
     ticket_confirmation: bool
     ticket_draft: dict[str, Any]
     ticket_confirmation_error: bool
+    ticket_decision: dict[str, Any]
     plan: dict[str, Any]
     citations: list[dict[str, Any]]
     retrieval: dict[str, Any]

@@ -240,6 +240,59 @@ async def test_ticket_denial_returns_confirmed_no_write_status_without_tools() -
     assert "tool_result" not in collector.types
 
 
+async def test_denial_then_confirmation_cannot_reuse_previous_draft() -> None:
+    from src.agent.nodes.answer import TicketDraftOut
+    from src.agent.nodes.classify import IntentOut
+    from src.agent.nodes.review import ReviewOut
+
+    class TicketLLM:
+        async def acomplete(self, messages, tier="cheap", response_model=None):
+            if response_model is IntentOut:
+                return ModelResult(parsed=IntentOut(intent="ticket"))
+            if response_model is ReviewOut:
+                return ModelResult(parsed=ReviewOut())
+            if response_model is TicketDraftOut:
+                return ModelResult(parsed=TicketDraftOut(
+                    title="故障跟进", detail="根因待确认", severity="P2",
+                    citations=[], unknowns=[],
+                ))
+            return ModelResult()
+
+        async def astream(self, messages, tier="strong"):
+            yield ""
+
+    runner = GraphRunner(Settings(_env_file=None))
+    runner.llm = TicketLLM()
+    draft_events = Collector()
+    await runner.run("draft-for-denial", "请生成 P2 工单草稿，先不要创建", draft_events)
+    draft = draft_events.payload_of("done")
+
+    denial_events = Collector()
+    await runner.run("denial-run", "我拒绝创建这个工单。", denial_events, conversation_history=[
+        {
+            "run_id": "draft-for-denial", "status": "completed",
+            "ticket_draft": draft["ticket_draft"], "answer": draft["answer"],
+        }
+    ])
+    denial = denial_events.payload_of("done")
+    assert denial["ticket_decision"]["status"] == "denied"
+
+    confirmation = Collector()
+    await runner.run("confirmation-after-denial", "确认创建", confirmation, conversation_history=[
+        {
+            "run_id": "draft-for-denial", "status": "completed",
+            "ticket_draft": draft["ticket_draft"], "answer": draft["answer"],
+        },
+        {
+            "run_id": "denial-run", "status": "completed",
+            "ticket_decision": denial["ticket_decision"], "answer": denial["answer"],
+            "approval_history": [{"event": "denied", "tool": "create_ticket"}],
+        },
+    ])
+    assert "没有可匹配" in confirmation.payload_of("done")["answer"]
+    assert not any(event.type == "tool_result" for event in confirmation.events)
+
+
 async def test_graph_runner_includes_prior_session_turn_in_answer_context() -> None:
     from src.agent.model import ModelResult
     from src.agent.nodes.classify import IntentOut

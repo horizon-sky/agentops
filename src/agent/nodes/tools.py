@@ -94,6 +94,15 @@ def _ticket_draft_from_history(state: AgentState) -> dict[str, Any] | None:
 
     history = state.get("conversation_history", [])
     for turn in reversed(history):
+        decision = turn.get("ticket_decision") or {}
+        if decision.get("status") == "denied":
+            return None
+        if any(
+            event.get("event") == "denied" and event.get("tool") == "create_ticket"
+            for event in turn.get("approval_history", [])
+            if isinstance(event, dict)
+        ):
+            return None
         if any(phrase in str(turn.get("query", "")) for phrase in TICKET_DENIAL_PHRASES):
             return None
         # A successful write consumes all earlier drafts, regardless of answer wording.

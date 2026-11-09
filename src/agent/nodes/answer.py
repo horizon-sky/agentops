@@ -247,6 +247,7 @@ async def answer(state: AgentState, config: Any | None = None) -> dict[str, Any]
                 "plan": plan,
                 "review": review,
                 "ticket_draft": ticket_draft,
+                "ticket_decision": state.get("ticket_decision", {}),
             },
             ms=timer.ms,
         )

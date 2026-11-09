@@ -40,6 +40,19 @@ TICKET_CONFIRMATION_PATTERN = r"^确认创建(?:[，,。!！\s].*)?$"
 CLARIFICATION_MESSAGE = "当前信息不足，暂未执行后续步骤。请补充具体服务、时间范围和现象。"
 
 
+def is_ticket_denial(query: str) -> bool:
+    """识别明确拒绝创建，不把“先不要创建，等确认”误判为拒绝。"""
+    normalized = re.sub(r"[\s，,。.!！、；;：:]+", "", query)
+    if any(phrase in normalized for phrase in TICKET_DENIAL_PHRASES):
+        return True
+    return bool(
+        re.search(
+            r"(?:拒绝|否决|取消)(?:创建|新建|建立|提交|建)(?:这个|该|此)?(?:工单|工单草稿|单)?",
+            normalized,
+        )
+    )
+
+
 def rule_intent(query: str) -> str:
     """模型不可用或无法给出结构化结果时的确定性兜底，保证链路仍可运行。"""
     if any(phrase in query for phrase in INJECTION_PHRASES):
@@ -59,9 +72,10 @@ async def classify(state: AgentState, config: Any | None = None) -> dict[str, An
     query = state["query"]
     intent, confident, reason = "general", True, ""
     requested_tools: list[str] = []
-    write_denied = any(phrase in query for phrase in TICKET_DENIAL_PHRASES)
+    write_denied = is_ticket_denial(query)
     ticket_confirmation = bool(re.fullmatch(TICKET_CONFIRMATION_PATTERN, query.strip()))
     ticket_draft = None
+    ticket_decision: dict[str, Any] = {}
     ticket_confirmation_error = False
     if ticket_confirmation:
         from src.agent.nodes.tools import _ticket_draft_from_history
@@ -77,6 +91,15 @@ async def classify(state: AgentState, config: Any | None = None) -> dict[str, An
     elif any(phrase in query for phrase in INJECTION_PHRASES):
         intent, reason = "injection", "检测到明确的审批或系统限制绕过请求"
     elif write_denied:
+        from src.agent.nodes.tools import _ticket_draft_from_history
+
+        prior_draft = _ticket_draft_from_history(state)
+        ticket_decision = {
+            "status": "denied",
+            "tool": "create_ticket",
+            "draft_run_id": prior_draft.get("run_id") if prior_draft else None,
+            "draft_fingerprint": prior_draft.get("fingerprint") if prior_draft else None,
+        }
         intent, reason = "ticket", "用户明确拒绝创建工单"
     elif llm is not None:
         try:
@@ -139,6 +162,7 @@ async def classify(state: AgentState, config: Any | None = None) -> dict[str, An
         "ticket_confirmation": ticket_confirmation and ticket_draft is not None,
         "ticket_draft": ticket_draft or {},
         "ticket_confirmation_error": ticket_confirmation_error,
+        "ticket_decision": ticket_decision,
         **({"answer": CLARIFICATION_MESSAGE} if not confident else {}),
         "execution_ms": state.get("execution_ms", 0) + timer.ms,
     }

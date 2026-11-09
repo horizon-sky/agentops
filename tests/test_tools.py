@@ -130,6 +130,28 @@ def test_explicit_denial_consumes_previous_structured_draft() -> None:
     ]}) is None
 
 
+def test_denial_wording_with_object_reference_consumes_previous_draft() -> None:
+    from src.agent.nodes.tools import _ticket_draft_fingerprint, _ticket_draft_from_history
+
+    title, severity, detail = "故障跟进", "P2", "根因待确认"
+    draft = {
+        "title": title, "detail": detail, "severity": severity, "run_id": "draft-run",
+        "fingerprint": _ticket_draft_fingerprint(title, severity, detail),
+    }
+    history = [
+        {"run_id": "draft-run", "status": "completed", "ticket_draft": draft},
+        {
+            "run_id": "denial-run", "status": "completed",
+            "query": "我拒绝创建这个工单。",
+            "ticket_decision": {
+                "status": "denied", "tool": "create_ticket",
+                "draft_run_id": "draft-run", "draft_fingerprint": draft["fingerprint"],
+            },
+        },
+    ]
+    assert _ticket_draft_from_history({"conversation_history": history}) is None
+
+
 def test_confirmation_does_not_parse_legacy_answer_as_a_write_draft() -> None:
     from src.agent.nodes.tools import _ticket_draft_from_history
 
